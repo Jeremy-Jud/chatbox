@@ -154,36 +154,107 @@ ipcMain.on('win:flash', () => {
 
 // ---------- Benachrichtigungen ----------
 const liveNotifications = new Set(); // Referenzen halten, sonst gehen Klicks verloren
+const handledReplies = new Set();    // Antwort kann über zwei Wege gemeldet werden -> nur einmal senden
+const CHAT_ID_RE = /^(u:[A-Z0-9]{6}|g:[a-z0-9-]{8,40})$/;
+let pendingReplies = [];             // Antworten, bevor das Fenster bereit ist (Kaltstart)
+
+const xmlEsc = (s) => String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+
+// Windows liest Bilder für Benachrichtigungen nur aus normalen Dateien (nicht aus app.asar)
+function toastDir() {
+  const d = path.join(app.getPath('userData'), 'toast');
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+function assetFile(name) {
+  const p = path.join(toastDir(), name);
+  if (!fs.existsSync(p)) fs.writeFileSync(p, fs.readFileSync(path.join(__dirname, 'src', 'assets', name)));
+  return p;
+}
+function avatarFile(dataUrl) {
+  if (typeof dataUrl === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(dataUrl)) {
+    const img = nativeImage.createFromDataURL(dataUrl);
+    if (!img.isEmpty()) {
+      const hash = require('crypto').createHash('sha1').update(dataUrl).digest('hex').slice(0, 16);
+      const p = path.join(toastDir(), `av-${hash}.png`);
+      if (!fs.existsSync(p)) fs.writeFileSync(p, img.toPNG());
+      return p;
+    }
+  }
+  return assetFile('logo.png');
+}
+
+function deliverReply(tag, chatId, text) {
+  text = String(text || '').trim().slice(0, 4000);
+  if (!tag || !CHAT_ID_RE.test(chatId || '') || !text || handledReplies.has(tag)) return;
+  handledReplies.add(tag);
+  if (win && rendererReady) win.webContents.send('notification:reply', chatId, text);
+  else pendingReplies.push([chatId, text]);
+}
+// Die Oberfläche meldet sich, sobald Chats geladen sind; dann wartende Antworten senden
+let rendererReady = false;
+ipcMain.on('app:ready', () => {
+  rendererReady = true;
+  const list = pendingReplies;
+  pendingReplies = [];
+  list.forEach(([chatId, text]) => win && win.webContents.send('notification:reply', chatId, text));
+});
+function openFromNotification(chatId) {
+  showWindow();
+  if (win && CHAT_ID_RE.test(chatId || '')) win.webContents.send('notification:click', chatId);
+}
+
+// Eigenes Layout: Senden-Symbol im Antwortfeld, damit Enter die Antwort abschickt
+function replyToastXml({ id, chatId, title, body, iconPath, placeholder, silent }) {
+  const args = (type) => xmlEsc(`type=${type}&tag=${id}&chat=${chatId}`);
+  return `<toast launch="${args('click')}" activationType="foreground">
+  <visual><binding template="ToastGeneric">
+    <text>${xmlEsc(title)}</text>
+    <text>${xmlEsc(body)}</text>
+    <image placement="appLogoOverride" hint-crop="circle" src="${xmlEsc(require('url').pathToFileURL(iconPath).href)}"/>
+  </binding></visual>
+  <actions>
+    <input id="reply" type="text" placeHolderContent="${xmlEsc(placeholder)}"/>
+    <action content="Senden" arguments="${args('reply')}" activationType="foreground" hint-inputId="reply"
+      imageUri="${xmlEsc(require('url').pathToFileURL(assetFile('send.png')).href)}"/>
+  </actions>
+  ${silent ? '<audio silent="true"/>' : ''}
+</toast>`;
+}
+
 ipcMain.on('notify', (_e, n) => {
   if (!Notification.isSupported() || !n || typeof n !== 'object') return;
+  const chatId = CHAT_ID_RE.test(n.chatId || '') ? n.chatId : null;
+  const title = String(n.title || 'WhatsUp').slice(0, 80);
+  const body = String(n.body || '').slice(0, 200);
+  const placeholder = String(n.replyPlaceholder || 'Antworten…').slice(0, 60);
   let icon = nativeImage.createFromPath(ICON_PATH);
   if (typeof n.icon === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(n.icon)) {
     const av = nativeImage.createFromDataURL(n.icon);
     if (!av.isEmpty()) icon = av;
   }
-  const chatId = n.chatId ? String(n.chatId).slice(0, 80) : null;
-  const note = new Notification({
-    title: String(n.title || 'WhatsUp').slice(0, 80),
-    body: String(n.body || '').slice(0, 200),
-    icon,
-    silent: !!n.silent,
-    // Direkt aus der Benachrichtigung antworten (wie bei Teams)
-    ...(chatId ? { hasReply: true, replyPlaceholder: String(n.replyPlaceholder || 'Antworten…').slice(0, 60) } : {}),
-  });
-  liveNotifications.add(note);
-  const drop = () => liveNotifications.delete(note);
-  note.on('click', () => {
-    showWindow();
-    if (win && chatId) win.webContents.send('notification:click', chatId);
-  });
-  note.on('reply', (details, legacyReply) => {
-    const text = String((details && details.reply) ?? legacyReply ?? '').trim().slice(0, 4000);
-    if (win && chatId && text) win.webContents.send('notification:reply', chatId, text);
-    drop();
-  });
-  // Bleibt im Benachrichtigungscenter, daher Referenz länger halten
-  setTimeout(drop, 6 * 60 * 60 * 1000);
-  note.show();
+
+  const build = (custom) => {
+    const id = require('crypto').randomUUID();
+    let opts = { id, title, body, icon, silent: !!n.silent };
+    if (chatId && custom && process.platform === 'win32') {
+      try {
+        opts.toastXml = replyToastXml({ id, chatId, title, body, iconPath: avatarFile(n.icon), placeholder, silent: !!n.silent });
+      } catch (e) { console.warn('Toast-Layout:', e); }
+    }
+    if (chatId && !opts.toastXml) opts = { ...opts, hasReply: true, replyPlaceholder: placeholder };
+    const note = new Notification(opts);
+    liveNotifications.add(note);
+    const drop = () => liveNotifications.delete(note);
+    note.on('click', () => openFromNotification(chatId));
+    note.on('reply', (details, legacy) => { deliverReply(note.id || id, chatId, (details && details.reply) ?? legacy); drop(); });
+    // Falls Windows das eigene Layout ablehnt: Standard-Benachrichtigung zeigen
+    note.on('failed', (_ev, err) => { drop(); console.warn('Benachrichtigung fehlgeschlagen:', err); if (custom && opts.toastXml) build(false); });
+    // Bleibt im Benachrichtigungscenter, daher Referenz länger halten
+    setTimeout(drop, 6 * 60 * 60 * 1000);
+    note.show();
+  };
+  build(true);
   if (win && !win.isFocused()) win.flashFrame(true);
 });
 
@@ -270,8 +341,18 @@ app.whenReady().then(() => {
   app.setAppUserModelId(APP_ID);
   ensureShortcuts();
   // Klick auf eine ältere Benachrichtigung (z. B. nach Neustart aus dem Benachrichtigungscenter)
+  // Zentrale Behandlung aller Klicks/Antworten – auch nach Neustart aus dem Benachrichtigungscenter
   if (process.platform === 'win32' && typeof Notification.handleActivation === 'function') {
-    Notification.handleActivation((d) => { if (d && d.type === 'click') showWindow(); });
+    Notification.handleActivation((d) => {
+      if (!d) return;
+      const a = new URLSearchParams(String(d.arguments || ''));
+      const chatId = a.get('chat');
+      const type = a.get('type') || d.type;
+      if (type === 'reply' || d.type === 'reply') {
+        deliverReply(a.get('tag') || 'x-' + Date.now(), chatId, d.reply ?? (d.userInputs && d.userInputs.reply));
+        if (!win || !win.isVisible()) return; // im Hintergrund bleiben, wie bei Teams
+      } else openFromNotification(chatId);
+    });
   }
   createWindow();
   createTray();

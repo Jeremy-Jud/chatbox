@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('chatboxWindow', {
   onNotificationClick: (fn) => ipcRenderer.on('notification:click', (_e, chatId) => fn(chatId)),
   onNotificationReply: (fn) => ipcRenderer.on('notification:reply', (_e, chatId, text) => fn(chatId, text)),
   testReply: (chatId, text) => ipcRenderer.send('test:reply', chatId, text),
+  ready: () => ipcRenderer.send('app:ready'),
   onHidden: (fn) => ipcRenderer.on('win:hidden', () => fn()),
 });
 

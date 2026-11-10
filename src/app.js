@@ -620,13 +620,31 @@
       if (opts.chatId && opts.chatId !== activeChat) toast(`${title}: ${String(body).slice(0, 60)}`);
       return;
     }
-    window.chatboxWindow.notify({
+    const send = (icon) => window.chatboxWindow.notify({
       title,
       body: opts.chatId && !settings.preview ? 'Neue Nachricht' : String(body).slice(0, 200),
-      icon: opts.icon || null,
+      icon,
       chatId: opts.chatId || null,
       replyPlaceholder: opts.replyPlaceholder || null,
       silent: !settings.sound,
+    });
+    if (!opts.icon) send(null);
+    else toPng(opts.icon).then(send, () => send(null));
+  }
+
+  // Profilbilder sind WebP – Windows-Benachrichtigungen brauchen PNG
+  const pngCache = new Map();
+  function toPng(src) {
+    if (src.startsWith('data:image/png')) return Promise.resolve(src);
+    if (pngCache.has(src)) return Promise.resolve(pngCache.get(src));
+    return loadImg(src).then((img) => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 128;
+      cv.getContext('2d').drawImage(img, 0, 0, 128, 128);
+      const png = cv.toDataURL('image/png');
+      if (pngCache.size > 50) pngCache.clear();
+      pngCache.set(src, png);
+      return png;
     });
   }
 
@@ -1366,6 +1384,7 @@
     render();
     startPeer();
     setInterval(connectAll, RETRY_MS);
+    window.chatboxWindow.ready(); // jetzt dürfen Antworten aus Benachrichtigungen kommen
   }
 
   applyTheme();
