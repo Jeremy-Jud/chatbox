@@ -587,6 +587,7 @@
   let toastBusy = false;
   function toast(text, gold) {
     toastQueue.push({ text, gold });
+    while (toastQueue.length > 3) toastQueue.shift();
     if (!toastBusy) nextToast();
   }
   function nextToast() {
@@ -597,7 +598,7 @@
     box.textContent = t.text;
     box.classList.toggle('gold', !!t.gold);
     box.classList.remove('hidden');
-    setTimeout(nextToast, t.gold ? 3500 : 2200);
+    setTimeout(nextToast, t.gold ? 2600 : 1600);
   }
 
   // ================= UI =================
@@ -622,7 +623,7 @@
       a.appendChild(i);
     } else {
       a.appendChild(document.createTextNode(([...(name || '?').trim()][0] || '?').toUpperCase()));
-      a.style.background = colorFor(seed);
+      a.classList.add('initial');
     }
     if (online != null) a.appendChild(el('span', 'dot' + (online ? ' on' : '')));
     return a;
@@ -649,6 +650,7 @@
     ['viewSetup', 'viewList', 'viewChat', 'viewProfile', 'viewAchievements'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
     $('backBtn').classList.toggle('hidden', v === 'viewList' || v === 'viewSetup');
     $('trophyBtn').classList.toggle('hidden', v === 'viewSetup');
+    $('trophyBtn').classList.toggle('active', v === 'viewAchievements');
     $('titleText').textContent = TITLES[v];
     hideEmoji();
   }
@@ -778,16 +780,9 @@
       li.appendChild(el('span', 'ach-icon', a.icon));
       const body = el('div', 'fmeta');
       body.appendChild(el('div', 'fname', a.title));
-      body.appendChild(el('div', 'flast', got ? `${a.desc} · ${new Date(unlocked[a.id]).toLocaleDateString('de-DE')}` : a.desc));
-      if (!got) {
-        const v = Math.min(statValue(a.stat), a.goal);
-        const bar = el('div', 'bar small');
-        const fill = el('div');
-        fill.style.width = (v / a.goal) * 100 + '%';
-        bar.appendChild(fill);
-        body.appendChild(bar);
-        body.appendChild(el('div', 'progress', `${v} / ${a.goal}`));
-      }
+      const v = Math.min(statValue(a.stat), a.goal);
+      const extra = got ? new Date(unlocked[a.id]).toLocaleDateString('de-DE') : a.goal > 1 ? `${v}/${a.goal}` : '';
+      body.appendChild(el('div', 'flast', a.desc + (extra ? ' · ' + extra : '')));
       li.appendChild(body);
       ul.appendChild(li);
     });
@@ -1039,9 +1034,8 @@
   $('setupName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('setupBtn').click(); });
 
   $('copyBtn').onclick = async () => {
-    try { await navigator.clipboard.writeText(me.code); $('copyBtn').textContent = 'Kopiert ✓'; }
-    catch { $('copyBtn').textContent = 'Fehler'; }
-    setTimeout(() => ($('copyBtn').textContent = 'Kopieren'), 1500);
+    try { await navigator.clipboard.writeText(me.code); toast('Code kopiert'); }
+    catch { toast('Kopieren fehlgeschlagen'); }
   };
 
   $('addForm').onsubmit = (e) => {

@@ -44,6 +44,7 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/wha
 | 😊 **Emojis** | Emoji-Auswahl mit Kategorien und „Zuletzt benutzt“. Nachrichten nur aus Emojis werden groß angezeigt |
 | 🏆 **Erfolge** | 23 Erfolge zum Freischalten, z. B. 25 Nachrichten, erstes GIF, Nachteule oder 7 Tage am Stück |
 | 🖼️ **Profil** | Profilbild, Name und Status. Deine Freunde sehen dein Bild und deine Erfolge |
+| 🌓 **Minimalistisch** | Schlichtes Design, hell oder dunkel passend zu Windows |
 | 🟢 **Online-Status** | Du siehst, wer gerade online ist |
 | 🔔 **Benachrichtigungen** | Desktop-Meldung und blinkende Taskleiste bei neuen Nachrichten |
 | ✓✓ **Zustellstatus** | 🕓 wartet · ✓ gesendet · ✓✓ angekommen |

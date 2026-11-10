@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 
 let win;
+const TEST_MODE = process.env.CHATBOX_HIDDEN === '1' && !app.isPackaged;
 
 // Optional: --profile=name startet ein getrenntes Profil (z. B. zum Testen mit zwei Fenstern)
 const profileArg = process.argv.find((a) => a.startsWith('--profile='));
@@ -25,7 +26,8 @@ function createWindow() {
     minHeight: 460,
     frame: false,
     backgroundColor: '#14161c',
-    show: process.env.CHATBOX_HIDDEN !== '1', // für automatische Tests
+    // Testmodus: Fenster wird gezeichnet, ist aber unsichtbar und nicht klickbar
+    ...(TEST_MODE ? { opacity: 0, focusable: false, skipTaskbar: true } : {}),
     title: 'WhatsUp',
     icon: path.join(__dirname, 'src', 'assets', 'logo.png'),
     webPreferences: {
@@ -39,6 +41,7 @@ function createWindow() {
     },
   });
 
+  if (TEST_MODE) win.setIgnoreMouseEvents(true);
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
 
   // Sicherheit: App darf nie auf fremde Seiten navigieren

@@ -8,51 +8,63 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0V4zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3-1-6zM12 13v7"/></symbol>
+      <symbol id="i-min" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></symbol>
+      <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9 14.5c1.5 1.5 4.5 1.5 6 0M9.5 10h0M14.5 10h0"/></symbol>
+      <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7-7L13 4.5a3.3 3.3 0 0 1 4.7 4.7l-7.8 7.8a1.7 1.7 0 0 1-2.3-2.4L14.8 7.4"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="10" height="10" rx="2"/><path d="M5 15V7a2 2 0 0 1 2-2h8"/></symbol>
+    </defs>
+  </svg>
+
   <header class="titlebar">
-    <button id="backBtn" class="tb-btn hidden" title="Zurück">‹</button>
+    <button id="backBtn" class="ic hidden" title="Zurück"><svg><use href="#i-back"/></svg></button>
     <div class="title"><img src="assets/logo.png" class="tb-logo" alt=""><span id="titleText">WhatsUp</span><span class="dot" id="netDot" title="Netzwerk"></span></div>
-    <div class="tb-actions">
-      <button id="trophyBtn" class="tb-btn" title="Erfolge">🏆</button>
-      <button id="pinBtn" class="tb-btn" title="Immer im Vordergrund">📌</button>
-      <button id="minBtn" class="tb-btn" title="Minimieren">–</button>
-      <button id="closeBtn" class="tb-btn close" title="Schließen">✕</button>
-    </div>
+    <button id="trophyBtn" class="ic" title="Erfolge"><svg><use href="#i-trophy"/></svg></button>
+    <button id="pinBtn" class="ic" title="Immer im Vordergrund"><svg><use href="#i-pin"/></svg></button>
+    <button id="minBtn" class="ic" title="Minimieren"><svg><use href="#i-min"/></svg></button>
+    <button id="closeBtn" class="ic close" title="Schließen"><svg><use href="#i-x"/></svg></button>
   </header>
 
   <!-- Erster Start -->
   <section id="viewSetup" class="view hidden">
     <div class="setup">
       <img src="assets/logo.png" class="logo" alt="WhatsUp-Logo">
-      <h1>Willkommen bei WhatsUp</h1>
-      <p>Wie sollen dich deine Freunde sehen?</p>
+      <h1>WhatsUp</h1>
       <input id="setupName" maxlength="24" placeholder="Dein Name" autocomplete="off">
-      <button id="setupBtn" class="primary">Los geht's</button>
+      <button id="setupBtn" class="primary">Weiter</button>
     </div>
   </section>
 
   <!-- Chats -->
   <section id="viewList" class="view hidden">
-    <div class="mecard">
-      <button id="meCardBtn" class="mecard-main" title="Profil bearbeiten">
+    <div class="me">
+      <button id="meCardBtn" class="me-main" title="Profil bearbeiten">
         <span id="meAvatar"></span>
-        <span class="mecard-info">
+        <span class="me-info">
           <span class="fname" id="meName"></span>
-          <span class="label">Code: <span class="code-sm" id="myCode">------</span></span>
+          <span class="flast">Code <span class="code-sm" id="myCode">------</span></span>
         </span>
       </button>
-      <button id="copyBtn" class="ghost small">Kopieren</button>
+      <button id="copyBtn" class="ic" title="Code kopieren"><svg><use href="#i-copy"/></svg></button>
     </div>
     <form id="addForm" class="add">
-      <input id="addInput" maxlength="6" placeholder="Code eines Freundes" autocomplete="off">
-      <button class="primary" type="submit">Adden</button>
+      <input id="addInput" maxlength="6" placeholder="Code hinzufügen" autocomplete="off">
+      <button class="ic" type="submit" title="Hinzufügen"><svg><use href="#i-plus"/></svg></button>
     </form>
     <div id="addStatus" class="status"></div>
     <div class="listhead">
       <span>Chats</span>
-      <button id="newGroupBtn" class="ghost small">＋ Gruppe</button>
+      <button id="newGroupBtn" class="link">Neue Gruppe</button>
     </div>
-    <ul id="chatList" class="friends"></ul>
-    <div id="emptyList" class="empty">Noch keine Chats.<br>Gib deinen Code weiter oder füge jemanden per Code hinzu.</div>
+    <ul id="chatList" class="list"></ul>
+    <div id="emptyList" class="empty">Noch keine Chats</div>
   </section>
 
   <!-- Chat -->
@@ -63,7 +75,6 @@
         <span class="fname" id="chatName"></span>
         <span class="flast" id="chatSub"></span>
       </span>
-      <span class="info-i">ⓘ</span>
     </button>
     <div id="messages" class="messages"></div>
     <div id="emojiPanel" class="emoji-panel hidden">
@@ -71,12 +82,12 @@
       <div id="emojiGrid" class="emoji-grid"></div>
     </div>
     <form id="sendForm" class="composer">
-      <button type="button" id="emojiBtn" class="icon-btn" title="Emojis">😊</button>
-      <button type="button" id="attachBtn" class="icon-btn" title="Bild oder GIF senden">📎</button>
-      <input id="msgInput" placeholder="Nachricht…" autocomplete="off" maxlength="4000">
-      <button class="primary send" type="submit" title="Senden">➤</button>
+      <button type="button" id="emojiBtn" class="ic" title="Emojis"><svg><use href="#i-smile"/></svg></button>
+      <button type="button" id="attachBtn" class="ic" title="Bild oder GIF"><svg><use href="#i-clip"/></svg></button>
+      <input id="msgInput" placeholder="Nachricht" autocomplete="off" maxlength="4000">
+      <button class="send" type="submit" title="Senden"><svg><use href="#i-send"/></svg></button>
     </form>
-    <div id="dropHint" class="drop-hint hidden">📷 Bild hier ablegen</div>
+    <div id="dropHint" class="drop-hint hidden">Bild hier ablegen</div>
   </section>
 
   <!-- Profil -->
@@ -84,12 +95,12 @@
     <div class="profile">
       <span id="profAvatar"></span>
       <div class="row">
-        <button id="avatarChange" class="ghost small">Bild wählen</button>
-        <button id="avatarRemove" class="ghost small">Entfernen</button>
+        <button id="avatarChange" class="link">Bild ändern</button>
+        <button id="avatarRemove" class="link muted-link">Entfernen</button>
       </div>
       <label>Name<input id="profName" maxlength="24" autocomplete="off"></label>
-      <label>Status<input id="profStatus" maxlength="80" placeholder="z. B. Bin am Zocken 🎮" autocomplete="off"></label>
-      <div class="profcode"><span class="label">Dein Code</span><span class="code" id="profCode"></span></div>
+      <label>Status<input id="profStatus" maxlength="80" placeholder="Optional" autocomplete="off"></label>
+      <label>Code<span class="code" id="profCode"></span></label>
       <button id="profSave" class="primary">Speichern</button>
     </div>
   </section>
@@ -97,7 +108,7 @@
   <!-- Erfolge -->
   <section id="viewAchievements" class="view hidden">
     <div class="ach-summary">
-      <div><span id="achCount">0</span> von <span id="achTotal">0</span> Erfolgen</div>
+      <span><span id="achCount">0</span> / <span id="achTotal">0</span></span>
       <div class="bar"><div id="achBar"></div></div>
     </div>
     <ul id="achList" class="ach-list"></ul>
@@ -107,8 +118,8 @@
   <div id="viewer" class="viewer hidden">
     <img id="viewerImg" alt="">
     <div class="viewer-actions">
-      <a id="viewerSave" class="primary">Speichern</a>
-      <button id="viewerClose" class="ghost">Schließen</button>
+      <a id="viewerSave" class="link">Speichern</a>
+      <button id="viewerClose" class="link">Schließen</button>
     </div>
   </div>
   <div id="toast" class="toast hidden"></div>
