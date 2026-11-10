@@ -16,6 +16,11 @@ let win = null;
 let tray = null;
 let quitting = false;
 const TEST_MODE = process.env.CHATBOX_HIDDEN === '1' && !app.isPackaged;
+// Tests: künstliche Kamera und Mikrofon statt echter Geräte
+if (TEST_MODE) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+}
 const IS_PORTABLE = !!process.env.PORTABLE_EXECUTABLE_FILE;
 const START_HIDDEN = process.argv.includes('--hidden');
 // Wird vom Fenster aus den Einstellungen gesetzt
@@ -89,8 +94,12 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Keine Rechte (Kamera, Mikrofon, Standort …) außer Benachrichtigungen
-  win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => {
+  // Keine Rechte (Standort …) außer Benachrichtigungen und Kamera/Mikrofon für Anrufe
+  win.webContents.session.setPermissionRequestHandler((wc, permission, cb, details) => {
+    if (permission === 'media') {
+      cb(wc === win.webContents && (details.mediaTypes || []).every((t) => t === 'audio' || t === 'video'));
+      return;
+    }
     cb(permission === 'notifications' || permission === 'clipboard-sanitized-write');
   });
 }
@@ -149,6 +158,14 @@ ipcMain.handle('win:togglePin', () => {
   return pinned;
 });
 ipcMain.handle('win:isPinned', () => !!(win && win.isAlwaysOnTop()));
+// Eingehender Anruf: Fenster nach vorne holen (wie bei Teams)
+ipcMain.on('win:attention', () => {
+  if (!win || TEST_MODE) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.flashFrame(true);
+});
 ipcMain.on('win:flash', () => {
   if (win && !win.isFocused()) win.flashFrame(true);
 });

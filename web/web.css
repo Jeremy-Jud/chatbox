@@ -63,3 +63,7 @@ html.is-web .st-overlay {
 }
 html.is-web .tabbar { padding-bottom: 4px; }
 html.is-web .tab { font-size: 11.5px; }
+
+/* Anruf: Notch und Home-Balken freilassen */
+html.is-web .call { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+html.is-web .call-local { top: calc(14px + env(safe-area-inset-top)); }

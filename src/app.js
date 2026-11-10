@@ -83,7 +83,7 @@
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
   const stats = Object.assign({
     sent: 0, groupSent: 0, images: 0, gifs: 0, emojis: 0, received: 0, groupsCreated: 0,
-    avatarSet: 0, statuses: 0, night: 0, early: 0, days: 0, streak: 0, maxStreak: 0, lastDay: '',
+    avatarSet: 0, statuses: 0, calls: 0, night: 0, early: 0, days: 0, streak: 0, maxStreak: 0, lastDay: '',
   }, store.load('stats', {}));
   let chats = {};                                  // chatId -> [Nachricht]
   const mediaCache = new Map();
@@ -245,6 +245,7 @@
     // Ereignisse eines alten, ersetzten Peers ignorieren
     p.on('open', () => { if (p !== peer) return; setNet(true); connectAll(); });
     p.on('connection', (conn) => { if (p === peer) setupConn(conn, false); else conn.close(); });
+    p.on('call', (mc) => { if (p === peer) calls.incoming(mc); else mc.close(); });
     p.on('disconnected', () => {
       if (p !== peer) return;
       setNet(false);
@@ -257,6 +258,7 @@
         if (m) {
           const code = m[1].toUpperCase();
           delete connecting[code];
+          calls.unavailable(code);
           if (pendingAdd === code) {
             // Mit Briefkasten-Server geht die Anfrage gleich darüber raus (pendingAdd bleibt für den Hinweis)
             if (relay.canSend(code)) { if (!pendingAddRelayed) setStatus('Dein Freund ist offline. Anfrage wird über den Server zugestellt…'); }
@@ -401,6 +403,9 @@
         saveMeta(); connectAll(); scheduleRender();
         break;
       }
+      case 'call-end': case 'call-reject': case 'call-cam': case 'callmiss':
+        calls.handle(code, data);
+        break;
       case 'status': case 'sdel': case 'slist': case 'sget': case 'sreact': case 'sseen':
         stories.handle(code, data).catch(console.error);
         break;
@@ -954,6 +959,7 @@
     if (isGroup ? !groups[code] : !contacts[code]) { closeChat(); return; }
 
     $('chatAvatar').replaceChildren(chatAvatar(chatId, '', !isGroup));
+    $('callBtns').classList.toggle('hidden', isGroup); // Anrufe nur im Einzelchat
     if (isGroup) {
       const g = groups[code];
       const on = others(g).filter(isOnline).length;
@@ -1649,6 +1655,421 @@
     if (activeChat && unread[activeChat]) { delete unread[activeChat]; saveMeta(); scheduleRender(); }
   });
 
+  // ================= Anrufe (Audio & Video, direkt über WebRTC, Ende-zu-Ende verschlüsselt) =================
+  // Signalisierung über PeerJS (peer.call), Steuerbefehle (Auflegen, Ablehnen, Kamera aus) über die Chat-Verbindung.
+  const calls = (() => {
+    const RING_MS = 45000;
+    let cur = null;
+    // cur = { id, code, video, dir: 'out'|'in', state: 'calling'|'ringing'|'connecting'|'active', mc, local, remote,
+    //         start, tick, ringTimer, lostTimer, muted, camOn, facing, camIdx, swapped, remoteCam }
+    const box = $('callView');
+    const remoteEl = $('callRemote'), localEl = $('callLocal'), localWrap = $('callLocalWrap');
+    const isMobile = () => window.matchMedia('(pointer: coarse)').matches;
+    const hasMedia = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const kindText = (video) => (video ? '🎥 Videoanruf' : '📞 Anruf');
+    const fmtDur = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+    const stopStream = (s) => { if (s) s.getTracks().forEach((t) => t.stop()); };
+
+    // ---------- Töne (ohne Audiodateien) ----------
+    let actx = null, toneTimer = null;
+    function beep(freqs, dur, vol) {
+      try {
+        actx = actx || new AudioContext();
+        if (actx.state === 'suspended') actx.resume();
+        const t = actx.currentTime;
+        freqs.forEach((f, i) => {
+          const o = actx.createOscillator(), g = actx.createGain();
+          o.type = 'sine'; o.frequency.value = f;
+          const st = t + i * dur;
+          g.gain.setValueAtTime(0.0001, st);
+          g.gain.exponentialRampToValueAtTime(vol, st + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
+          o.connect(g).connect(actx.destination);
+          o.start(st); o.stop(st + dur + 0.05);
+        });
+      } catch {}
+    }
+    function startTone(incoming) {
+      stopTone();
+      const play = incoming ? () => beep([659, 784, 988, 784], 0.16, 0.18) : () => beep([440], 0.9, 0.06);
+      play();
+      toneTimer = setInterval(play, incoming ? 2200 : 3500);
+    }
+    function stopTone() { clearInterval(toneTimer); toneTimer = null; }
+
+    // ---------- Kamera & Mikrofon ----------
+    async function getStream(video, facing = 'user') {
+      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      if (!video) return navigator.mediaDevices.getUserMedia({ audio });
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      } catch (e) {
+        if (e && e.name === 'NotAllowedError') throw e;
+        return navigator.mediaDevices.getUserMedia({ audio }); // keine Kamera: nur mit Ton
+      }
+    }
+    function mediaError(e) {
+      const n = e && e.name;
+      if (n === 'NotAllowedError') toast('⚠️ Kein Zugriff auf Mikrofon/Kamera. Bitte in den Einstellungen erlauben.');
+      else if (n === 'NotFoundError') toast('⚠️ Kein Mikrofon gefunden.');
+      else if (n === 'NotReadableError') toast('⚠️ Mikrofon/Kamera wird gerade von einem anderen Programm benutzt.');
+      else toast('⚠️ Mikrofon/Kamera konnte nicht gestartet werden.');
+    }
+    async function videoInputs() {
+      try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput'); } catch { return []; }
+    }
+
+    // ---------- Oberfläche ----------
+    function openUI() {
+      const c = contacts[cur.code] || {};
+      $('callAvatar').replaceChildren(avatarEl(c.name, c.avatar, cur.code));
+      $('callName').textContent = nameOf(cur.code);
+      $('callAcceptIcon').setAttribute('href', cur.video ? '#i-video' : '#i-phone');
+      box.className = 'call opening' + (cur.video ? '' : ' audio');
+      setTimeout(() => box.classList.remove('opening'), 250);
+      localWrap.classList.add('hidden');
+      localWrap.style.left = localWrap.style.top = localWrap.style.right = '';
+      remoteEl.srcObject = null;
+      $('callIncoming').classList.toggle('hidden', cur.dir !== 'in');
+      $('callControls').classList.toggle('hidden', cur.dir === 'in');
+      renderButtons();
+      hideEmoji();
+    }
+    function setState(text) { $('callState').textContent = text; }
+    function renderButtons() {
+      if (!cur) return;
+      const mute = $('callMute'), cam = $('callCam');
+      mute.classList.toggle('off', cur.muted);
+      mute.querySelector('use').setAttribute('href', cur.muted ? '#i-mic-off' : '#i-mic');
+      mute.title = cur.muted ? 'Stummschaltung aufheben' : 'Stummschalten';
+      cam.classList.toggle('off', !cur.camOn);
+      cam.querySelector('use').setAttribute('href', cur.camOn ? '#i-video' : '#i-video-off');
+      cam.title = cur.camOn ? 'Kamera aus' : 'Kamera an';
+      localWrap.classList.toggle('cam-off', !cur.camOn);
+    }
+    // Großes Bild: Video des anderen (oder eigenes, wenn getauscht); sonst Profilbild
+    function renderVideo() {
+      if (!cur) return;
+      const remoteHasVideo = !!(cur.remote && cur.remote.getVideoTracks().length && cur.remoteCam !== false);
+      const localHasVideo = !!(cur.local && cur.local.getVideoTracks().length);
+      const big = cur.swapped ? (localHasVideo ? cur.local : null) : (remoteHasVideo ? cur.remote : null);
+      const small = cur.swapped ? (remoteHasVideo ? cur.remote : null) : (localHasVideo ? cur.local : null);
+      // Ton des anderen läuft immer über das große Element (stumm, wenn es das eigene Bild zeigt)
+      if (!cur.swapped) { if (remoteEl.srcObject !== cur.remote) remoteEl.srcObject = cur.remote || null; }
+      else if (remoteEl.srcObject !== cur.local) remoteEl.srcObject = cur.local;
+      remoteEl.muted = !!cur.swapped;
+      if (cur.swapped && cur.remote) playAudioOnly(cur.remote); else playAudioOnly(null);
+      remoteEl.classList.toggle('mirror', !!cur.swapped && cur.facing === 'user');
+      box.classList.toggle('has-video', !!big);
+      if (localEl.srcObject !== small) localEl.srcObject = small;
+      localWrap.classList.toggle('hidden', !cur.video || !small);
+      localWrap.classList.toggle('mirror', !cur.swapped && cur.facing === 'user');
+      remoteEl.play().catch(() => {});
+      localEl.play().catch(() => {});
+    }
+    // Beim Tauschen läuft der Ton des anderen über ein unsichtbares Audio-Element
+    let audioEl = null;
+    function playAudioOnly(stream) {
+      if (!stream) { if (audioEl) { audioEl.srcObject = null; } return; }
+      audioEl = audioEl || Object.assign(document.createElement('audio'), { autoplay: true });
+      if (audioEl.srcObject !== stream) { audioEl.srcObject = stream; audioEl.play().catch(() => {}); }
+    }
+
+    // ---------- Ablauf ----------
+    async function start(code, video) {
+      if (cur) return;
+      if (!hasMedia()) { toast('⚠️ Anrufe werden hier nicht unterstützt.'); return; }
+      if (!peer || !peer.open) { toast('⚠️ Keine Verbindung zum Netzwerk.'); return; }
+      if (!isFriend(code)) return;
+      cur = { id: crypto.randomUUID(), code, video, dir: 'out', state: 'calling', muted: false, camOn: video, facing: 'user', camIdx: 0 };
+      const me_ = cur;
+      openUI();
+      setState('Kamera und Mikrofon werden gestartet…');
+      try { cur.local = await getStream(video); }
+      catch (e) { mediaError(e); cur = null; closeUI(0); return; }
+      if (cur !== me_) { stopStream(me_.local); return; } // inzwischen abgebrochen
+      cur.camOn = video && cur.local.getVideoTracks().length > 0;
+      renderVideo(); renderButtons(); checkFlip();
+      setState('Ruft an…');
+      connectTo(code);
+      const mc = peer.call(peerIdOf(code), cur.local, { metadata: { callId: cur.id, video } });
+      if (!mc) { end('unreachable'); return; }
+      bind(mc);
+      startTone(false);
+      cur.ringTimer = setTimeout(() => { if (cur === me_ && cur.state !== 'active') end('noanswer'); }, RING_MS);
+      stats.calls = (stats.calls || 0) + 1;
+      saveMeta(); checkAchievements();
+    }
+
+    function bind(mc) {
+      cur.mc = mc;
+      const c = cur;
+      mc.on('stream', (remote) => {
+        if (cur !== c) return;
+        cur.remote = remote;
+        remote.onaddtrack = () => renderVideo();
+        if (cur.state !== 'active') active();
+        renderVideo();
+      });
+      mc.on('close', () => { if (cur === c) end(cur.state === 'ringing' ? 'canceled' : 'remote'); });
+      mc.on('error', () => { if (cur === c) end('error'); });
+      watchIce(mc, c);
+    }
+    function watchIce(mc, c) {
+      const pc = mc.peerConnection;
+      if (!pc) { setTimeout(() => { if (cur === c && mc.peerConnection) watchIce(mc, c); }, 300); return; }
+      pc.addEventListener('iceconnectionstatechange', () => {
+        if (cur !== c) return;
+        const s = pc.iceConnectionState;
+        if (s === 'failed') end('lost');
+        else if (s === 'disconnected') {
+          if (c.state === 'active') setState('Verbindung wird wiederhergestellt…');
+          clearTimeout(c.lostTimer);
+          c.lostTimer = setTimeout(() => { if (cur === c && pc.iceConnectionState !== 'connected' && pc.iceConnectionState !== 'completed') end('lost'); }, 10000);
+        } else if (s === 'connected' || s === 'completed') clearTimeout(c.lostTimer);
+      });
+    }
+    function active() {
+      cur.state = 'active';
+      cur.start = Date.now();
+      clearTimeout(cur.ringTimer);
+      stopTone();
+      box.classList.remove('ringing-in');
+      $('callIncoming').classList.add('hidden');
+      $('callControls').classList.remove('hidden');
+      const c = cur;
+      const upd = () => { if (cur === c && cur.state === 'active') setState(fmtDur(Date.now() - c.start)); };
+      upd();
+      cur.tick = setInterval(upd, 1000);
+    }
+
+    function incoming(mc) {
+      const code = codeOf(mc.peer);
+      const meta = mc.metadata || {};
+      if (!CODE_RE.test(code) || !isFriend(code) || blocked.includes(code)) { mc.close(); return; }
+      const callId = String(meta.callId || '').slice(0, 64);
+      if (cur) {
+        // Besetzt
+        sendTo(code, { type: 'call-reject', callId, busy: true });
+        setTimeout(() => { try { mc.close(); } catch {} }, 800);
+        systemMessage('u:' + code, `${kindText(!!meta.video)} verpasst (du warst in einem anderen Anruf)`);
+        unread['u:' + code] = (unread['u:' + code] || 0) + 1;
+        saveMeta(); scheduleRender();
+        return;
+      }
+      cur = { id: callId, code, video: !!meta.video, dir: 'in', state: 'ringing', mc, muted: false, camOn: !!meta.video, facing: 'user', camIdx: 0 };
+      const c = cur;
+      openUI();
+      box.classList.add('ringing-in');
+      setState(cur.video ? 'Videoanruf …' : 'Anruf …');
+      startTone(true);
+      mc.on('close', () => { if (cur === c && cur.state === 'ringing') end('canceled'); });
+      cur.ringTimer = setTimeout(() => { if (cur === c && cur.state === 'ringing') end('missed'); }, RING_MS + 5000);
+      // Fenster nach vorne holen bzw. Benachrichtigung zeigen
+      window.chatboxWindow.attention && window.chatboxWindow.attention();
+      if (document.hidden || !document.hasFocus()) {
+        notifyCall(code, cur.video);
+      }
+    }
+    function notifyCall(code, video) {
+      if (!settings.notify) return;
+      const icon = contacts[code] && contacts[code].avatar;
+      const send = (ic) => window.chatboxWindow.notify({ title: nameOf(code), body: video ? '🎥 Videoanruf …' : '📞 Ruft dich an …', icon: ic, silent: true });
+      if (icon) toPng(icon).then(send, () => send(null)); else send(null);
+    }
+
+    async function accept() {
+      if (!cur || cur.dir !== 'in' || cur.state !== 'ringing') return;
+      const c = cur;
+      stopTone();
+      clearTimeout(cur.ringTimer);
+      cur.state = 'connecting';
+      box.classList.remove('ringing-in');
+      $('callIncoming').classList.add('hidden');
+      $('callControls').classList.remove('hidden');
+      setState('Verbinde …');
+      try { cur.local = await getStream(cur.video); }
+      catch (e) { mediaError(e); if (cur === c) decline(); return; }
+      if (cur !== c) { stopStream(c.local); return; }
+      cur.camOn = cur.video && cur.local.getVideoTracks().length > 0;
+      renderVideo(); renderButtons(); checkFlip();
+      bind(cur.mc);
+      cur.mc.answer(cur.local);
+      watchIce(cur.mc, c);
+      stats.calls = (stats.calls || 0) + 1;
+      saveMeta(); checkAchievements();
+    }
+    function decline() {
+      if (!cur) return;
+      sendTo(cur.code, { type: 'call-reject', callId: cur.id });
+      end('declined');
+    }
+
+    // Anruf beenden und im Chat vermerken
+    function end(reason) {
+      if (!cur) return;
+      const c = cur;
+      cur = null;
+      clearTimeout(c.ringTimer); clearTimeout(c.lostTimer); clearInterval(c.tick);
+      stopTone();
+      if (!['remote', 'canceled', 'rejected', 'busy', 'declined', 'unreachable'].includes(reason)) sendTo(c.code, { type: 'call-end', callId: c.id });
+      try { if (c.mc) c.mc.close(); } catch {}
+      stopStream(c.local);
+      playAudioOnly(null);
+      remoteEl.srcObject = null; localEl.srcObject = null;
+      const chatId = 'u:' + c.code, kind = kindText(c.video);
+      let msg = null, shown = 'Anruf beendet';
+      if (c.start) msg = `${kind} · ${fmtDur(Date.now() - c.start)}`;
+      else if (c.dir === 'in') {
+        if (reason === 'declined') { msg = `${kind} abgelehnt`; shown = 'Abgelehnt'; }
+        else {
+          msg = `${kind} verpasst`;
+          unread[chatId] = (unread[chatId] || 0) + 1;
+          if (document.hidden || !document.hasFocus()) notify(nameOf(c.code), `Verpasster ${c.video ? 'Videoanruf' : 'Anruf'}`, { chatId, icon: contacts[c.code] && contacts[c.code].avatar });
+        }
+      } else {
+        const t = { rejected: 'abgelehnt', busy: 'besetzt', noanswer: 'nicht angenommen', unreachable: 'nicht erreichbar', hangup: 'abgebrochen', error: 'fehlgeschlagen', lost: 'Verbindung verloren' }[reason] || 'beendet';
+        msg = `${kind} · ${t}`;
+        shown = t.charAt(0).toUpperCase() + t.slice(1);
+        // Nicht erreichbar / nicht angenommen: der andere soll den verpassten Anruf sehen (auch per Push)
+        if (reason === 'unreachable') sendData(c.code, { type: 'callmiss', callId: c.id, video: !!c.video });
+      }
+      if (msg) systemMessage(chatId, msg);
+      saveMeta(); scheduleRender();
+      setState(shown);
+      $('callControls').classList.add('hidden');
+      $('callIncoming').classList.add('hidden');
+      closeUI(c.start || c.dir === 'out' ? 1300 : 600);
+    }
+    function closeUI(delay) {
+      setTimeout(() => {
+        if (cur) return; // schon ein neuer Anruf
+        box.classList.add('hidden');
+        box.classList.remove('has-video', 'ringing-in', 'swapped');
+      }, delay);
+    }
+
+    // ---------- Knöpfe ----------
+    function toggleMute() {
+      if (!cur || !cur.local) return;
+      cur.muted = !cur.muted;
+      cur.local.getAudioTracks().forEach((t) => { t.enabled = !cur.muted; });
+      renderButtons();
+    }
+    function toggleCam() {
+      if (!cur || !cur.local) return;
+      const vt = cur.local.getVideoTracks();
+      if (!vt.length) { toast('Keine Kamera gefunden'); return; }
+      cur.camOn = !cur.camOn;
+      vt.forEach((t) => { t.enabled = cur.camOn; });
+      sendTo(cur.code, { type: 'call-cam', callId: cur.id, on: cur.camOn });
+      renderButtons();
+    }
+    async function checkFlip() {
+      const n = (await videoInputs()).length;
+      box.classList.toggle('no-flip', !(cur && cur.video && (n > 1 || (isMobile() && n > 0))));
+    }
+    // Kamera drehen: Handy vorne/hinten, PC nächste Kamera
+    async function flip() {
+      if (!cur || !cur.local || !cur.video) return;
+      const c = cur;
+      const old = cur.local.getVideoTracks()[0];
+      const inputs = await videoInputs();
+      let constraints;
+      if (isMobile()) {
+        c.facing = c.facing === 'user' ? 'environment' : 'user';
+        constraints = { facingMode: { exact: c.facing } };
+      } else {
+        if (inputs.length < 2) { toast('Keine zweite Kamera gefunden'); return; }
+        const curId = old && old.getSettings ? old.getSettings().deviceId : null;
+        const i = inputs.findIndex((d) => d.deviceId === curId);
+        const next = inputs[(i + 1) % inputs.length];
+        constraints = { deviceId: { exact: next.deviceId } };
+        c.facing = /back|rear|rück|environment/i.test(next.label) ? 'environment' : 'user';
+      }
+      // Handys erlauben oft nur eine Kamera gleichzeitig: alte zuerst freigeben
+      if (old) old.stop();
+      let track;
+      try {
+        track = (await navigator.mediaDevices.getUserMedia({ video: { ...constraints, width: { ideal: 1280 }, height: { ideal: 720 } } })).getVideoTracks()[0];
+      } catch {
+        try { track = (await navigator.mediaDevices.getUserMedia({ video: isMobile() ? { facingMode: c.facing } : true })).getVideoTracks()[0]; }
+        catch (e) { mediaError(e); return; }
+      }
+      if (cur !== c) { track.stop(); return; }
+      track.enabled = c.camOn;
+      if (old) c.local.removeTrack(old);
+      c.local.addTrack(track);
+      const sender = c.mc && c.mc.peerConnection && c.mc.peerConnection.getSenders().find((s) => s.track === old || (s.track && s.track.kind === 'video') || (!s.track && old));
+      if (sender) { try { await sender.replaceTrack(track); } catch (e) { console.warn('Kamera wechseln:', e); } }
+      // Neues Objekt erzwingen, damit das Vorschaubild neu startet
+      localEl.srcObject = null;
+      renderVideo();
+    }
+    function swap() { if (cur && cur.remote && cur.local) { cur.swapped = !cur.swapped; renderVideo(); } }
+
+    // Eigenes Bild verschieben (Maus oder Finger); kurzer Tipp = Bilder tauschen
+    (() => {
+      let st = null;
+      localWrap.addEventListener('pointerdown', (e) => {
+        const r = localWrap.getBoundingClientRect(), b = box.getBoundingClientRect();
+        st = { x: e.clientX, y: e.clientY, l: r.left - b.left, t: r.top - b.top, moved: false };
+        localWrap.setPointerCapture(e.pointerId);
+      });
+      localWrap.addEventListener('pointermove', (e) => {
+        if (!st) return;
+        const dx = e.clientX - st.x, dy = e.clientY - st.y;
+        if (!st.moved && Math.hypot(dx, dy) < 6) return;
+        st.moved = true;
+        const b = box.getBoundingClientRect(), w = localWrap.offsetWidth, h = localWrap.offsetHeight;
+        localWrap.style.right = 'auto';
+        localWrap.style.left = Math.max(8, Math.min(b.width - w - 8, st.l + dx)) + 'px';
+        localWrap.style.top = Math.max(8, Math.min(b.height - h - 8, st.t + dy)) + 'px';
+      });
+      localWrap.addEventListener('pointerup', () => { if (st && !st.moved) swap(); st = null; });
+      localWrap.addEventListener('pointercancel', () => { st = null; });
+    })();
+
+    $('callEnd').onclick = () => end(cur && cur.dir === 'in' && cur.state === 'ringing' ? 'declined' : 'hangup');
+    $('callAccept').onclick = accept;
+    $('callDecline').onclick = decline;
+    $('callMute').onclick = toggleMute;
+    $('callCam').onclick = toggleCam;
+    $('callFlip').onclick = flip;
+    $('audioCallBtn').onclick = () => { if (activeChat && activeChat.startsWith('u:')) start(activeChat.slice(2), false); };
+    $('videoCallBtn').onclick = () => { if (activeChat && activeChat.startsWith('u:')) start(activeChat.slice(2), true); };
+
+    // Steuerbefehle vom anderen
+    function handle(code, data) {
+      const sameCall = cur && cur.code === code && (!data.callId || data.callId === cur.id);
+      switch (data.type) {
+        case 'call-end':
+          if (sameCall) end(cur.state === 'ringing' ? 'canceled' : 'remote');
+          break;
+        case 'call-reject':
+          if (sameCall && cur.dir === 'out') end(data.busy ? 'busy' : 'rejected');
+          break;
+        case 'call-cam':
+          if (sameCall) { cur.remoteCam = !!data.on; renderVideo(); }
+          break;
+        case 'callmiss': {
+          if (!isFriend(code)) return;
+          const chatId = 'u:' + code;
+          systemMessage(chatId, `${kindText(!!data.video)} verpasst`);
+          unread[chatId] = (unread[chatId] || 0) + 1;
+          notify(nameOf(code), `Verpasster ${data.video ? 'Videoanruf' : 'Anruf'}`, { chatId, icon: contacts[code] && contacts[code].avatar });
+          saveMeta(); scheduleRender();
+          break;
+        }
+      }
+    }
+    // Freund war nicht erreichbar (PeerJS: peer-unavailable)
+    function unavailable(code) {
+      if (cur && cur.dir === 'out' && cur.code === code && cur.state === 'calling' && cur.mc) end('unreachable');
+    }
+    return { start, incoming, handle, unavailable, active: () => !!cur };
+  })();
+
   // ================= Status (wie bei WhatsApp: Bilder mit Beschreibung, 24 Stunden sichtbar) =================
   // Verteilung: direkt an Freunde (P2P) oder verschlüsselt über den Briefkasten-Server.
   // Beim Verbinden gleichen beide ihre Liste ab (slist/sget), so kommt auch Verpasstes an.
@@ -2180,9 +2601,9 @@
   //  - Pro Nachricht: Einmal-Schlüssel (ECDH) -> HKDF -> AES-256-GCM, Absender signiert alles
   const relay = (() => {
     const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
-    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen']);
+    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss']);
     // Push aufs Handy nur für echte Nachrichten und Reaktionen (Profil, Gruppen-Abgleich, Bestätigungen usw. still)
-    const PUSH_TYPES = new Set(['msg', 'gmsg', 'sreact']);
+    const PUSH_TYPES = new Set(['msg', 'gmsg', 'sreact', 'callmiss']);
     const te = new TextEncoder(), td = new TextDecoder();
     let ident = null;        // { signPriv, encPriv, signPub, encPub }
     let ready = false;

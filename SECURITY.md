@@ -27,6 +27,7 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 
 **Was WhatsUp schützt:**
 - Nachrichten werden über WebRTC (DTLS) verschlüsselt direkt zwischen den Rechnern übertragen.
+- Anrufe laufen ebenfalls direkt über WebRTC und sind mit DTLS-SRTP Ende-zu-Ende verschlüsselt. Muss die Verbindung über einen TURN-Server umgeleitet werden, sieht dieser nur verschlüsselte Daten. Kamera und Mikrofon werden nur während eines Anrufs benutzt; die Windows-App erlaubt sie nur dem eigenen Fenster.
 - Der PeerJS-Signalisierungsserver sieht nur Verbindungsdaten (Peer-IDs, IP-Adressen), aber keine Nachrichten.
 - **Briefkasten-Server (Offline-Zustellung, `relay/`):** Jedes Gerät erzeugt ECDSA- und ECDH-Schlüssel (P-256), die privaten Schlüssel sind nicht exportierbar. Nachrichten werden mit einem Einmal-ECDH-Schlüssel, HKDF und AES-256-GCM verschlüsselt und vom Absender per ECDSA signiert. Der Empfänger prüft die Signatur, der Server kann Inhalte weder lesen noch fälschen.
 - Beim Server ist zu jedem Code der Schlüssel hinterlegt (beim ersten Kontakt, danach unveränderbar). Senden, Abholen, Löschen und Push-Anmeldung erfordern eine frische Signatur (max. 10 Minuten alt). Pro Absender gilt ein Mengenlimit, pro Briefkasten eine Größenbegrenzung.

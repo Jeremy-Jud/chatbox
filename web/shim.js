@@ -61,6 +61,7 @@
     togglePin: () => Promise.resolve(false),
     isPinned: () => Promise.resolve(false),
     flash: noop,
+    attention: noop,
     notify: (n) => {
       if (!canNotify()) return;
       if (Notification.permission === 'granted') show(n);

@@ -402,3 +402,65 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .st-sheet-list .fname { flex: 1; color: #fff; }
 .st-sheet-list .emo { font-size: 20px; }
 .st-sheet-list .muted { color: rgba(255, 255, 255, .55); }
+
+/* ================= Anrufe ================= */
+.chatbar { display: flex; align-items: center; border-bottom: 1px solid var(--line); padding-right: 8px; }
+.chatbar .chathead { border-bottom: 0; flex: 1; min-width: 0; }
+.call-btns { display: flex; gap: 2px; padding-bottom: 6px; }
+.call-btns .ic svg { width: 19px; height: 19px; }
+
+.call {
+  position: fixed; inset: 0; z-index: 50; background: #0b0b0d; color: #fff;
+  display: flex; flex-direction: column; overflow: hidden; user-select: none;
+}
+.call-remote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b0b0d; display: none; }
+.call.has-video .call-remote { display: block; }
+.call-info {
+  position: relative; z-index: 2; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 20px; text-align: center; transition: opacity .2s;
+}
+.call-info .avatar { width: 112px; height: 112px; font-size: 40px; margin-bottom: 10px; }
+.call-info b { font-size: 20px; font-weight: 600; }
+#callState { color: rgba(255, 255, 255, .7); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.call.ringing-in .call-info .avatar { animation: callPulse 1.6s ease-out infinite; }
+@keyframes callPulse { 0% { box-shadow: 0 0 0 0 rgba(48, 164, 108, .55); } 100% { box-shadow: 0 0 0 26px rgba(48, 164, 108, 0); } }
+/* Im Videoanruf: Name klein oben statt großem Bild */
+.call.has-video .call-info { flex: 0; justify-content: flex-start; padding-top: 16px; text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
+.call.has-video .call-info .avatar { display: none; }
+.call.has-video .call-info b { font-size: 16px; }
+
+/* Eigenes Bild klein in der Ecke, verschiebbar */
+.call-local {
+  position: absolute; z-index: 4; top: 14px; right: 14px; width: 104px; aspect-ratio: 3 / 4;
+  border-radius: 14px; overflow: hidden; background: #222; box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+  cursor: grab; touch-action: none; transition: box-shadow .15s;
+}
+.call-local:active { cursor: grabbing; }
+.call-local video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.call-local.mirror video, .call.swapped .call-remote.mirror { transform: scaleX(-1); }
+.call-local.cam-off video { visibility: hidden; }
+.call-local.cam-off::after { content: 'Kamera aus'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: rgba(255, 255, 255, .7); }
+
+.call-controls {
+  position: relative; z-index: 5; display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: auto;
+  padding: 18px 16px 26px; background: linear-gradient(transparent, rgba(0, 0, 0, .55));
+}
+.call-btn {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: rgba(255, 255, 255, .14); backdrop-filter: blur(8px); transition: background .15s, transform .1s;
+}
+.call-btn:hover { background: rgba(255, 255, 255, .24); }
+.call-btn:active { transform: scale(.94); }
+.call-btn svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.call-btn.off { background: #fff; color: #111; }
+.call-btn.end { background: var(--danger); }
+.call-btn.end svg { transform: rotate(135deg); }
+.call-btn.accept { background: var(--online); }
+.call-btn.big { width: 64px; height: 64px; position: relative; }
+.call-btn.big span { position: absolute; top: 72px; font-size: 12px; color: rgba(255, 255, 255, .8); white-space: nowrap; }
+.call-controls.incoming { gap: 72px; padding-bottom: 48px; }
+.call-btn.accept svg { animation: callShake 1.2s ease-in-out infinite; }
+@keyframes callShake { 0%, 50%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+.call.audio #callFlip, .call.audio #callCam { display: none; }
+.call.no-flip #callFlip { display: none; }
+.call.opening { animation: stOpen .22s ease-out; }

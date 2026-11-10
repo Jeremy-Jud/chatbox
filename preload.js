@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('chatboxWindow', {
   togglePin: () => ipcRenderer.invoke('win:togglePin'),
   isPinned: () => ipcRenderer.invoke('win:isPinned'),
   flash: () => ipcRenderer.send('win:flash'),
+  attention: () => ipcRenderer.send('win:attention'),
   notify: (n) => ipcRenderer.send('notify', n),
   setBadge: (count, dataUrl) => ipcRenderer.send('badge', count, dataUrl),
   setPrefs: (p) => ipcRenderer.send('prefs', p),
