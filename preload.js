@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('chatboxWindow', {
   togglePin: () => ipcRenderer.invoke('win:togglePin'),
   isPinned: () => ipcRenderer.invoke('win:isPinned'),
   flash: () => ipcRenderer.send('win:flash'),
+  notify: (n) => ipcRenderer.send('notify', n),
+  setBadge: (count, dataUrl) => ipcRenderer.send('badge', count, dataUrl),
+  setPrefs: (p) => ipcRenderer.send('prefs', p),
+  onNotificationClick: (fn) => ipcRenderer.on('notification:click', (_e, chatId) => fn(chatId)),
+  onHidden: (fn) => ipcRenderer.on('win:hidden', () => fn()),
 });
 
 contextBridge.exposeInMainWorld('whatsupApp', {

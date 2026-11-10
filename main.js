@@ -1,12 +1,18 @@
-const { app, BrowserWindow, ipcMain, shell, net, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, net, nativeTheme, Notification, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 
 const REPO = 'Jeremy-Jud/whatsup';
 const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
+const ICON_PATH = path.join(__dirname, 'src', 'assets', 'logo.png');
 
-let win;
+let win = null;
+let tray = null;
+let quitting = false;
 const TEST_MODE = process.env.CHATBOX_HIDDEN === '1' && !app.isPackaged;
 const IS_PORTABLE = !!process.env.PORTABLE_EXECUTABLE_FILE;
+const START_HIDDEN = process.argv.includes('--hidden');
+// Wird vom Fenster aus den Einstellungen gesetzt
+const prefs = { runInBackground: true, openAtLogin: false };
 
 // Optional: --profile=name startet ein getrenntes Profil (z. B. zum Testen mit zwei Fenstern)
 const profileArg = process.argv.find((a) => a.startsWith('--profile='));
@@ -22,6 +28,13 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+function showWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 380,
@@ -29,11 +42,12 @@ function createWindow() {
     minWidth: 320,
     minHeight: 460,
     frame: false,
+    show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0e0e10' : '#ffffff',
     // Testmodus: Fenster wird gezeichnet, ist aber unsichtbar und nicht klickbar
     ...(TEST_MODE ? { opacity: 0, focusable: false, skipTaskbar: true } : {}),
     title: 'WhatsUp',
-    icon: path.join(__dirname, 'src', 'assets', 'logo.png'),
+    icon: ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -46,7 +60,17 @@ function createWindow() {
   });
 
   if (TEST_MODE) win.setIgnoreMouseEvents(true);
+  win.once('ready-to-show', () => { if (!START_HIDDEN || TEST_MODE) win.show(); });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  // Schließen = im Hintergrund weiterlaufen (wie Discord/Teams)
+  win.on('close', (e) => {
+    if (quitting || !prefs.runInBackground || TEST_MODE) return;
+    e.preventDefault();
+    win.hide();
+    win.webContents.send('win:hidden');
+  });
+  win.on('focus', () => win.flashFrame(false));
 
   // Sicherheit: App darf nie auf fremde Seiten navigieren
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -63,12 +87,21 @@ function createWindow() {
   });
 }
 
-app.on('second-instance', () => {
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  }
-});
+function createTray() {
+  if (TEST_MODE) return;
+  const img = nativeImage.createFromPath(ICON_PATH).resize({ width: 32, height: 32, quality: 'best' });
+  tray = new Tray(img);
+  tray.setToolTip('WhatsUp');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'WhatsUp öffnen', click: showWindow },
+    { type: 'separator' },
+    { label: 'Beenden', click: () => { quitting = true; app.quit(); } },
+  ]));
+  tray.on('click', showWindow);
+}
+
+app.on('second-instance', showWindow);
+app.on('before-quit', () => { quitting = true; });
 
 // ---------- Fenster ----------
 ipcMain.on('win:minimize', () => win && win.minimize());
@@ -82,6 +115,55 @@ ipcMain.handle('win:togglePin', () => {
 ipcMain.handle('win:isPinned', () => !!(win && win.isAlwaysOnTop()));
 ipcMain.on('win:flash', () => {
   if (win && !win.isFocused()) win.flashFrame(true);
+});
+
+// ---------- Benachrichtigungen ----------
+const liveNotifications = new Set(); // Referenzen halten, sonst gehen Klicks verloren
+ipcMain.on('notify', (_e, n) => {
+  if (!Notification.isSupported() || !n || typeof n !== 'object') return;
+  let icon = nativeImage.createFromPath(ICON_PATH);
+  if (typeof n.icon === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(n.icon)) {
+    const av = nativeImage.createFromDataURL(n.icon);
+    if (!av.isEmpty()) icon = av;
+  }
+  const note = new Notification({
+    title: String(n.title || 'WhatsUp').slice(0, 80),
+    body: String(n.body || '').slice(0, 200),
+    icon,
+    silent: !!n.silent,
+  });
+  liveNotifications.add(note);
+  const drop = () => liveNotifications.delete(note);
+  note.on('click', () => {
+    drop();
+    showWindow();
+    if (win && n.chatId) win.webContents.send('notification:click', String(n.chatId));
+  });
+  note.on('close', drop);
+  note.show();
+  if (win && !win.isFocused()) win.flashFrame(true);
+  setTimeout(drop, 10 * 60 * 1000);
+});
+
+// Roter Zähler am Taskleisten-Icon
+ipcMain.on('badge', (_e, count, dataUrl) => {
+  if (!win) return;
+  const n = Math.max(0, Number(count) || 0);
+  if (n && typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png;base64,')) {
+    win.setOverlayIcon(nativeImage.createFromDataURL(dataUrl), `${n} ungelesene Nachrichten`);
+  } else {
+    win.setOverlayIcon(null, '');
+  }
+  if (tray) tray.setToolTip(n ? `WhatsUp – ${n} ungelesen` : 'WhatsUp');
+});
+
+ipcMain.on('prefs', (_e, p) => {
+  if (!p || typeof p !== 'object') return;
+  prefs.runInBackground = p.runInBackground !== false;
+  prefs.openAtLogin = !!p.openAtLogin;
+  if (app.isPackaged && !IS_PORTABLE) {
+    app.setLoginItemSettings({ openAtLogin: prefs.openAtLogin, args: ['--hidden'] });
+  }
 });
 
 // ---------- Updates ----------
@@ -132,7 +214,7 @@ ipcMain.handle('update:download', async () => {
 });
 
 ipcMain.on('update:install', () => {
-  if (canSelfUpdate) setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  if (canSelfUpdate) { quitting = true; setImmediate(() => autoUpdater.quitAndInstall(true, true)); }
 });
 
 ipcMain.on('open:repo', () => shell.openExternal(`https://github.com/${REPO}`));
@@ -140,6 +222,7 @@ ipcMain.on('open:repo', () => shell.openExternal(`https://github.com/${REPO}`));
 app.whenReady().then(() => {
   app.setAppUserModelId('com.whatsup.app');
   createWindow();
+  createTray();
 });
 
 app.on('window-all-closed', () => app.quit());

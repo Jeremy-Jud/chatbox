@@ -69,7 +69,10 @@
   let blocked = store.load('blocked', []);
   let unread = store.load('unread', {});           // chatId -> Anzahl
   let recentEmojis = store.load('recentEmojis', []);
-  const settings = Object.assign({ theme: 'system', notify: true, autoUpdate: true }, store.load('settings', {}));
+  const settings = Object.assign({
+    theme: 'system', notify: true, sound: true, preview: true, autoUpdate: true,
+    runInBackground: true, openAtLogin: false, bgHintShown: false,
+  }, store.load('settings', {}));
   const saveSettings = () => store.save('settings', settings);
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
   const stats = Object.assign({
@@ -361,10 +364,10 @@
       list.push(msg);
       saveChat(chatId);
       stats.received++;
-      if (activeChat !== chatId) unread[chatId] = (unread[chatId] || 0) + 1;
       if (activeChat !== chatId || !document.hasFocus()) {
+        unread[chatId] = (unread[chatId] || 0) + 1;
         const title = gid ? `${groups[gid].name} – ${nameOf(from)}` : nameOf(from);
-        notify(title, preview(msg));
+        notify(title, preview(msg), { chatId, icon: contacts[from] && contacts[from].avatar });
       }
       saveMeta(); checkAchievements(); scheduleRender();
     }
@@ -579,11 +582,54 @@
   }
 
   // ================= Benachrichtigungen & Toasts =================
-  function notify(title, body) {
-    window.chatboxWindow && window.chatboxWindow.flash();
-    if (document.hasFocus() || !settings.notify) return;
-    try { new Notification(title, { body: String(body).slice(0, 120) }); } catch {}
+  // Windows-Benachrichtigung (wie Teams/Discord). Ist das Fenster aktiv, reicht ein kleiner Hinweis in der App.
+  function notify(title, body, opts = {}) {
+    const focused = document.hasFocus();
+    if (!focused) window.chatboxWindow.flash();
+    if (!settings.notify) return;
+    if (focused) {
+      if (opts.chatId && opts.chatId !== activeChat) toast(`${title}: ${String(body).slice(0, 60)}`);
+      return;
+    }
+    window.chatboxWindow.notify({
+      title,
+      body: opts.chatId && !settings.preview ? 'Neue Nachricht' : String(body).slice(0, 200),
+      icon: opts.icon || null,
+      chatId: opts.chatId || null,
+      silent: !settings.sound,
+    });
   }
+
+  // Roter Zähler am Taskleisten-Icon
+  let lastBadge = -1;
+  function updateBadge() {
+    const n = Object.values(unread).reduce((a, b) => a + (b || 0), 0);
+    if (n === lastBadge) return;
+    lastBadge = n;
+    if (!n) { window.chatboxWindow.setBadge(0, null); return; }
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 32;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#e5484d';
+    g.beginPath(); g.arc(16, 16, 16, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff';
+    g.font = `bold ${n > 9 ? 16 : 20}px "Segoe UI", sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(n > 9 ? '9+' : String(n), 16, 17);
+    window.chatboxWindow.setBadge(n, cv.toDataURL('image/png'));
+  }
+
+  window.chatboxWindow.onNotificationClick((chatId) => {
+    if (!me) return;
+    const ok = chatId.startsWith('g:') ? groups[chatId.slice(2)] : contacts[chatId.slice(2)];
+    if (ok) openChat(chatId);
+  });
+  window.chatboxWindow.onHidden(() => {
+    if (settings.bgHintShown) return;
+    settings.bgHintShown = true; saveSettings();
+    window.chatboxWindow.notify({ title: 'WhatsUp läuft im Hintergrund weiter', body: 'So verpasst du keine Nachrichten. Zum Öffnen oder Beenden klicke auf das WhatsUp-Symbol unten rechts in der Taskleiste.', silent: true });
+  });
+  const sendPrefs = () => window.chatboxWindow.setPrefs({ runInBackground: settings.runInBackground, openAtLogin: settings.openAtLogin });
 
   const toastQueue = [];
   let toastBusy = false;
@@ -668,6 +714,7 @@
 
   function render() {
     if (!me) return;
+    updateBadge();
     renderList();
     if (view === 'viewChat') renderChat();
     if (view === 'viewAchievements') renderAchievements();
@@ -985,6 +1032,11 @@
     $('profStatus').value = me.status || '';
     $('profCode').textContent = me.code;
     $('setNotify').checked = settings.notify;
+    $('setSound').checked = settings.sound;
+    $('setPreview').checked = settings.preview;
+    $('setBackground').checked = settings.runInBackground;
+    $('setLogin').checked = settings.openAtLogin;
+    renderNotifyRows();
     $('setAutoUpdate').checked = settings.autoUpdate;
     window.chatboxWindow.isPinned().then((p) => { $('setPin').checked = p; });
     renderProfAvatar();
@@ -1035,9 +1087,16 @@
   });
 
   // Allgemein
-  $('setNotify').onchange = (e) => {
-    settings.notify = e.target.checked; saveSettings();
-    if (settings.notify && Notification.permission === 'default') Notification.requestPermission();
+  function renderNotifyRows() {
+    ['setSound', 'setPreview'].forEach((id) => $(id).closest('.setting').classList.toggle('disabled', !settings.notify));
+  }
+  $('setNotify').onchange = (e) => { settings.notify = e.target.checked; saveSettings(); renderNotifyRows(); };
+  $('setSound').onchange = (e) => { settings.sound = e.target.checked; saveSettings(); };
+  $('setPreview').onchange = (e) => { settings.preview = e.target.checked; saveSettings(); };
+  $('setBackground').onchange = (e) => { settings.runInBackground = e.target.checked; saveSettings(); sendPrefs(); };
+  $('setLogin').onchange = (e) => { settings.openAtLogin = e.target.checked; saveSettings(); sendPrefs(); };
+  $('notifyTest').onclick = () => {
+    window.chatboxWindow.notify({ title: 'WhatsUp', body: 'So sehen deine Benachrichtigungen aus 👋', silent: !settings.sound });
   };
   $('setAutoUpdate').onchange = (e) => { settings.autoUpdate = e.target.checked; saveSettings(); };
   $('setPin').onchange = async (e) => {
@@ -1098,6 +1157,7 @@
   window.whatsupApp.onUpdateError((m) => { if (upd.state === 'downloading') { upd.state = 'error'; upd.error = m.slice(0, 120); renderUpdate(); } });
   window.whatsupApp.info().then((i) => {
     upd.version = i.version; upd.mode = i.mode; renderUpdate();
+    $('loginRow').classList.toggle('hidden', i.mode !== 'installed');
     if (settings.autoUpdate && i.mode !== 'dev') setTimeout(() => checkForUpdate(true), 4000);
   });
 
@@ -1198,6 +1258,7 @@
   }
 
   applyTheme();
+  sendPrefs();
   if (me) boot();
   else { show('viewSetup'); $('setupName').focus(); }
 })();

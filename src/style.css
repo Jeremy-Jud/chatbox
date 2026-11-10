@@ -167,6 +167,7 @@ button.danger { color: var(--danger); font-weight: 500; margin-right: auto; }
 .field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--muted); }
 .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; cursor: default; }
 label.setting { cursor: pointer; }
+.setting.disabled { opacity: .4; pointer-events: none; }
 .row-end { display: flex; align-items: center; gap: 4px; }
 .small-ic { width: 26px; height: 26px; }
 .small-ic svg { width: 15px; height: 15px; }
