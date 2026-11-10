@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data:">
+  <title>Chatbox</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="titlebar">
+    <button id="backBtn" class="tb-btn hidden" title="Zurück">‹</button>
+    <div class="title"><span class="dot" id="netDot"></span><span id="titleText">Chatbox</span></div>
+    <div class="tb-actions">
+      <button id="pinBtn" class="tb-btn" title="Immer im Vordergrund">📌</button>
+      <button id="minBtn" class="tb-btn" title="Minimieren">–</button>
+      <button id="closeBtn" class="tb-btn close" title="Schließen">✕</button>
+    </div>
+  </header>
+
+  <!-- Erster Start -->
+  <section id="viewSetup" class="view hidden">
+    <div class="setup">
+      <div class="logo">💬</div>
+      <h1>Willkommen bei Chatbox</h1>
+      <p>Wie sollen dich deine Freunde sehen?</p>
+      <input id="setupName" maxlength="24" placeholder="Dein Name" autocomplete="off">
+      <button id="setupBtn" class="primary">Los geht's</button>
+    </div>
+  </section>
+
+  <!-- Freundesliste -->
+  <section id="viewList" class="view hidden">
+    <div class="mycode">
+      <div>
+        <div class="label">Dein Code</div>
+        <div class="code" id="myCode">------</div>
+      </div>
+      <button id="copyBtn" class="ghost">Kopieren</button>
+    </div>
+    <form id="addForm" class="add">
+      <input id="addInput" maxlength="6" placeholder="Code eines Freundes" autocomplete="off">
+      <button class="primary" type="submit">Adden</button>
+    </form>
+    <div id="addStatus" class="status"></div>
+    <ul id="friendList" class="friends"></ul>
+    <div id="emptyList" class="empty">Noch keine Freunde.<br>Gib deinen Code weiter oder füge jemanden per Code hinzu.</div>
+  </section>
+
+  <!-- Chat -->
+  <section id="viewChat" class="view hidden">
+    <div id="messages" class="messages"></div>
+    <form id="sendForm" class="composer">
+      <input id="msgInput" placeholder="Nachricht…" autocomplete="off" maxlength="2000">
+      <button class="primary send" type="submit">➤</button>
+    </form>
+  </section>
+
+  <script src="../node_modules/peerjs/dist/peerjs.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

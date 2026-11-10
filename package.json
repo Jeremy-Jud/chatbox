@@ -1,0 +1,31 @@
+{
+  "name": "chatbox",
+  "version": "1.0.0",
+  "description": "Kleine Desktop-Chat-App: Freunde per Code hinzufügen und direkt chatten.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "peerjs": "^1.5.4"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.chatbox.app",
+    "productName": "Chatbox",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "node_modules/peerjs/dist/peerjs.min.js"
+    ],
+    "win": {
+      "target": "portable"
+    }
+  }
+}
