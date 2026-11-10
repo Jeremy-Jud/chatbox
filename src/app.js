@@ -222,6 +222,7 @@
   const connecting = {};  // code -> Zeitstempel
   const queues = {};      // code -> Promise (Sendereihenfolge)
   let pendingAdd = null;
+  let pendingAddRelayed = false; // Anfrage liegt schon im Briefkasten
 
   const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
   const peerIdOf = (code) => ID_PREFIX + code.toLowerCase();
@@ -258,7 +259,7 @@
           delete connecting[code];
           if (pendingAdd === code) {
             // Mit Briefkasten-Server geht die Anfrage gleich darüber raus (pendingAdd bleibt für den Hinweis)
-            if (relay.canSend(code)) setStatus('Dein Freund ist offline. Anfrage wird über den Server zugestellt…');
+            if (relay.canSend(code)) { if (!pendingAddRelayed) setStatus('Dein Freund ist offline. Anfrage wird über den Server zugestellt…'); }
             else { setStatus('Freund ist gerade nicht online. Ihr werdet verbunden, sobald dein Freund WhatsUp öffnet.'); pendingAdd = null; }
           }
         }
@@ -1554,14 +1555,15 @@
     ensureContact(code).friend = true;
     saveMeta();
     pendingAdd = code;
+    pendingAddRelayed = false;
     setStatus(peer && peer.open ? 'Verbinde…' : 'Gespeichert. Wird verbunden, sobald du wieder online bist…');
     if (isOnline(code)) conns[code].send(helloPayload(code));
     else {
       delete connecting[code]; connectTo(code);
       // Offline? Dann die Freundschaftsanfrage über den Briefkasten-Server schicken
       setTimeout(async () => {
-        if (isOnline(code) || !(await relay.send(code, helloPayload(code)))) return;
-        if (pendingAdd === code) setStatus('Dein Freund ist offline. Die Anfrage kommt an, sobald dein Freund WhatsUp öffnet.');
+        if (isOnline(code) || !(await relay.send(code, helloPayload(code), { push: true }))) return; // Freundschaftsanfrage: mit Push
+        if (pendingAdd === code) { pendingAddRelayed = true; setStatus('Dein Freund ist offline. Die Anfrage kommt an, sobald dein Freund WhatsUp öffnet.'); }
       }, 4000);
     }
     checkAchievements();
@@ -2179,7 +2181,8 @@
   const relay = (() => {
     const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
     const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen']);
-    const SILENT_TYPES = new Set(['ack', 'status', 'sdel', 'sseen']); // kein Push aufs Handy
+    // Push aufs Handy nur für echte Nachrichten und Reaktionen (Profil, Gruppen-Abgleich, Bestätigungen usw. still)
+    const PUSH_TYPES = new Set(['msg', 'gmsg', 'sreact']);
     const te = new TextEncoder(), td = new TextDecoder();
     let ident = null;        // { signPriv, encPriv, signPub, encPub }
     let ready = false;
@@ -2270,7 +2273,8 @@
     }
 
     // Nachricht in den Briefkasten des Empfängers legen. true = angenommen
-    async function send(code, data) {
+    async function send(code, data, opts = {}) {
+      const push = opts.push ?? PUSH_TYPES.has(data && data.type);
       if (!ready || !enabled() || !data || !RELAY_TYPES.has(data.type) || blocked.includes(code) || known[code] === false) return false;
       try {
         const keys = await keysOf(code);
@@ -2279,7 +2283,7 @@
         const ts = Date.now();
         const res = await fetch(`${url()}/v1/send/${code}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream', 'X-From': me.code, 'X-Ts': String(ts), 'X-Sig': await sign(`send|${me.code}|${code}|${ts}`), ...(SILENT_TYPES.has(data.type) ? { 'X-Silent': '1' } : {}) },
+          headers: { 'Content-Type': 'application/octet-stream', 'X-From': me.code, 'X-Ts': String(ts), 'X-Sig': await sign(`send|${me.code}|${code}|${ts}`), ...(push ? {} : { 'X-Silent': '1' }) },
           body,
         });
         if (res.status === 404) { known[code] = false; return false; }
