@@ -50,7 +50,10 @@ WhatsUp läuft auch im Browser: **[jeremy-jud.github.io/whatsup](https://jeremy-
 Die Web-Version chattet direkt mit der Windows-App. **Jedes Gerät hat aber seinen eigenen Code:** Dein iPhone bekommt einen anderen Code als dein PC, und Chats und Freunde werden nicht zwischen den Geräten übertragen. Deine Freunde müssen deinen iPhone-Code also extra adden.
 
 iPhone und iPad pausieren Apps im Hintergrund. Nachrichten, die in der Zwischenzeit kommen, warten verschlüsselt im Briefkasten (siehe [Offline-Zustellung](#-offline-zustellung)) und erscheinen beim nächsten Öffnen.
-Damit du sie mitbekommst, schalte in WhatsUp unter **Einstellungen → Benachrichtigungen** die Benachrichtigungen ein. Dann bekommst du eine **Push-Benachrichtigung**, auch wenn WhatsUp geschlossen ist (ab iOS 16.4, nur vom Home-Bildschirm aus).
+Damit du sie mitbekommst, schalte in WhatsUp unter **Einstellungen → Benachrichtigungen** die Benachrichtigungen ein. Dann bekommst du eine **Push-Benachrichtigung**, auch wenn WhatsUp geschlossen ist, auf dem Sperrbildschirm und in der Mitteilungszentrale (ab iOS 16.4, nur vom Home-Bildschirm aus).
+Mit **Test senden** kommt nach 5 Sekunden ein echter Test-Push über den Server. Sperr in der Zeit dein Handy, dann siehst du, wie er auf dem Sperrbildschirm aussieht.
+
+> Auf Android und am PC zeigt die Push-Benachrichtigung das Profilbild des Absenders. iPhone und iPad zeigen bei Web-Apps immer das App-Symbol; das Profilbild kann Apple dort nur bei Apps aus dem App Store anzeigen.
 
 ## ✨ Funktionen
 

@@ -1400,8 +1400,23 @@
     if (settings.relay) relay.start(); else relay.renderRelayStatus();
   };
   $('notifyTest').onclick = () => {
-    setTimeout(() => relay.setupPush(), 2000);
-    window.chatboxWindow.notify({ title: 'WhatsUp', body: 'So sehen deine Benachrichtigungen aus 👋', silent: !settings.sound });
+    const local = () => window.chatboxWindow.notify({ title: 'WhatsUp', body: 'So sehen deine Benachrichtigungen aus 👋', silent: !settings.sound });
+    if (!document.documentElement.classList.contains('is-web')) { local(); return; }
+    // Web: echter Push über den Server, damit er auch auf dem Sperrbildschirm ankommt
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (ios && !document.documentElement.classList.contains('is-standalone')) {
+      toast('Für Push auf dem Sperrbildschirm: Teilen → „Zum Home-Bildschirm“, dann WhatsUp dort öffnen.');
+      return;
+    }
+    if (!('Notification' in window)) { toast('Dieser Browser kann keine Benachrichtigungen.'); return; }
+    const perm = Notification.permission === 'default' ? Notification.requestPermission() : Notification.permission;
+    Promise.resolve(perm).then(async (p) => {
+      if (p !== 'granted') { toast('Benachrichtigungen sind blockiert. Erlaube sie in den Einstellungen.'); return; }
+      if (!settings.notify) { settings.notify = true; saveSettings(); $('setNotify').checked = true; renderNotifyRows(); }
+      const r = await relay.pushTest();
+      if (r === 'ok') toast('Test kommt in 5 Sekunden. Sperr jetzt dein Handy 🔒');
+      else { local(); toast('Push über den Server ging gerade nicht, nur Test in der App.'); }
+    });
   };
   $('setAutoUpdate').onchange = (e) => { settings.autoUpdate = e.target.checked; saveSettings(); };
   $('setPin').onchange = async (e) => {
@@ -1618,7 +1633,7 @@
     const url = () => store.load('relayUrl', null) || DEFAULT_URL;
     const enabled = () => settings.relay !== false && !!url();
     const b64u = (buf) => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
-    const unb64u = (s) => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+    const unb64u = (s) => Uint8Array.from(atob(String(s).replace(/[^A-Za-z0-9_-]/g, '').replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
     const cat = (...p) => { const o = new Uint8Array(p.reduce((n, x) => n + x.length, 0)); let i = 0; p.forEach((x) => { o.set(x, i); i += x.length; }); return o; };
     const pubJwk = (k) => (k && k.kty === 'EC' && k.crv === 'P-256' && typeof k.x === 'string' && typeof k.y === 'string' && !k.d ? { kty: 'EC', crv: 'P-256', x: k.x, y: k.y } : null);
 
@@ -1756,13 +1771,28 @@
         const s = sub.toJSON();
         const ts = Date.now();
         await post(`/v1/push/${me.code}`, { sub: s, ts, sig: await sign(`push|${me.code}|${ts}|${s.endpoint}`) });
-      } catch (e) { console.warn('Push:', e); }
+        return true;
+      } catch (e) { console.warn('Push:', e); return false; }
     }
-    // Namen für die Push-Anzeige im Service Worker bereitlegen
+    // Test-Push an dieses Gerät (kommt 5 s später, auch bei gesperrtem Handy)
+    async function pushTest() {
+      if (!ready || !(await setupPush())) return 'nopush';
+      try {
+        const ts = Date.now();
+        const r = await post(`/v1/pushtest/${me.code}`, { ts, sig: await sign(`pushtest|${me.code}|${ts}`) });
+        return r && r.ok ? 'ok' : 'nopush';
+      } catch (e) { console.warn('Push-Test:', e); return 'error'; }
+    }
+    // Namen und Profilbilder für die Push-Anzeige im Service Worker bereitlegen
     function saveNames() {
       const names = {};
       Object.entries(contacts).forEach(([c, v]) => { names[c] = v.name; });
       db.put('keys', 'pushNames', names).catch(() => {});
+      if (!document.documentElement.classList.contains('is-web')) return;
+      const icons = {};
+      Promise.all(Object.entries(contacts).filter(([, v]) => v.avatar).map(([c, v]) =>
+        toPng(v.avatar).then((png) => { icons[c] = png; }, () => {})))
+        .then(() => db.put('keys', 'pushIcons', icons)).catch(() => {});
     }
 
     function renderRelayStatus() {
@@ -1793,7 +1823,7 @@
     window.addEventListener('online', () => poll());
 
     return {
-      start, poll, send, setupPush, saveNames, renderRelayStatus,
+      start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus,
       canSend: (code) => ready && enabled() && known[code] !== false,
       publicKeys: () => (ident ? { sign: ident.signPub, enc: ident.encPub } : null),
       // Direkt (per Verbindung) erhaltene Schlüssel merken

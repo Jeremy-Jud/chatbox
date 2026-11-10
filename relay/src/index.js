@@ -41,6 +41,8 @@ async function verify(signJwk, sigB64u, text) {
     return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, unb64u(sigB64u), enc.encode(text));
   } catch { return false; }
 }
+// Secrets können ein unsichtbares BOM/Leerzeichen enthalten (z. B. aus PowerShell)
+const clean = (s) => String(s || '').replace(/^﻿/, '').trim();
 const freshTs = (ts) => Number.isFinite(ts) && Math.abs(Date.now() - ts) < CLOCK_SKEW;
 
 // ---------- Worker: leitet Anfragen an den Briefkasten des jeweiligen Codes ----------
@@ -51,7 +53,7 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean); // v1 / <aktion> / <code> [/ …]
     if (parts[0] !== 'v1') return fail(404, 'not found');
     if (parts[1] === 'health') return json({ ok: true });
-    if (parts[1] === 'vapid') return json({ key: env.VAPID_PUBLIC || null });
+    if (parts[1] === 'vapid') return json({ key: clean(env.VAPID_PUBLIC) || null });
     const code = String(parts[2] || '').toUpperCase();
     if (!CODE_RE.test(code)) return fail(400, 'bad code');
     const stub = env.MAILBOX.get(env.MAILBOX.idFromName(code));
@@ -99,6 +101,7 @@ export class Mailbox {
         case 'get': return this.get(code, Number(arg), req);
         case 'ack': return this.ack(code, await req.json());
         case 'push': return this.pushSub(code, await req.json());
+        case 'pushtest': return this.pushTest(code, await req.json());
         case 'verify': return this.verifyFromOwner(code, await req.json()); // intern
         default: return fail(404, 'not found');
       }
@@ -209,12 +212,24 @@ export class Mailbox {
     return json({ ok: true });
   }
 
-  async notifyPush(from) {
+  // Test-Push an die eigenen Geräte, 5 Sekunden verzögert (Zeit zum Sperren des Handys)
+  async pushTest(code, b) {
+    if (!(await this.ownerOk('pushtest', code, b.ts, b.sig))) return fail(403, 'forbidden');
+    const last = Number(this.getMeta('lastPushTest') || 0);
+    if (Date.now() - last < 10000) return fail(429, 'too many requests');
+    this.setMeta('lastPushTest', String(Date.now()));
+    const n = this.sql.exec('SELECT COUNT(*) AS n FROM subs').toArray()[0].n;
+    if (!n) return json({ ok: false, subs: 0 });
+    this.state.waitUntil(new Promise((r) => setTimeout(r, 5000)).then(() => this.notifyPush(null, { test: true })));
+    return json({ ok: true, subs: n });
+  }
+
+  async notifyPush(from, payload = { from }) {
     if (!this.env.VAPID_PUBLIC || !this.env.VAPID_PRIVATE) return;
     const subs = this.sql.exec('SELECT endpoint, sub FROM subs').toArray();
     for (const row of subs) {
       try {
-        const status = await sendWebPush(JSON.parse(row.sub), JSON.stringify({ from }), this.env);
+        const status = await sendWebPush(JSON.parse(row.sub), JSON.stringify(payload), this.env);
         if (status === 404 || status === 410) this.sql.exec('DELETE FROM subs WHERE endpoint = ?', row.endpoint);
       } catch { /* Push ist nur ein Bonus */ }
     }
@@ -238,9 +253,9 @@ async function vapidAuth(endpoint, env) {
   const aud = new URL(endpoint).origin;
   const header = b64u(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
   const claims = b64u(enc.encode(JSON.stringify({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: env.VAPID_SUBJECT })));
-  const key = await crypto.subtle.importKey('jwk', JSON.parse(env.VAPID_PRIVATE), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const key = await crypto.subtle.importKey('jwk', JSON.parse(clean(env.VAPID_PRIVATE)), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, enc.encode(`${header}.${claims}`));
-  return `vapid t=${header}.${claims}.${b64u(sig)}, k=${env.VAPID_PUBLIC}`;
+  return `vapid t=${header}.${claims}.${b64u(sig)}, k=${clean(env.VAPID_PUBLIC)}`;
 }
 
 async function sendWebPush(sub, payload, env) {
