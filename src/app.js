@@ -1068,6 +1068,7 @@
     }
   }
   async function checkForUpdate(silent) {
+    if (['checking', 'downloading', 'ready'].includes(upd.state)) return;
     upd.state = 'checking'; renderUpdate();
     try {
       const r = await window.whatsupApp.checkUpdate();
