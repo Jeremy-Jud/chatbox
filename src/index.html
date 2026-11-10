@@ -268,6 +268,7 @@
     <img id="viewerImg" alt="">
     <div class="viewer-actions">
       <a id="viewerSave" class="link">Speichern</a>
+      <button id="viewerSticker" class="link hidden">Als Sticker</button>
       <button id="viewerClose" class="link">Schließen</button>
     </div>
   </div>
@@ -276,6 +277,26 @@
   <input type="file" id="avatarInput" accept="image/*" hidden>
   <input type="file" id="groupAvatarInput" accept="image/*" hidden>
   <input type="file" id="statusInput" accept="image/*" multiple hidden>
+  <input type="file" id="stickerInput" accept="image/*" hidden>
+
+  <!-- Sticker erstellen -->
+  <div id="stkEditor" class="modal stk-modal hidden">
+    <div class="modal-box stk-box">
+      <h3>Sticker erstellen</h3>
+      <canvas id="stkCanvas" class="stk-canvas" width="512" height="512" title="Ziehen zum Verschieben"></canvas>
+      <div class="segmented" id="stkShape">
+        <button data-shape="round">Rund</button>
+        <button data-shape="square">Eckig</button>
+        <button data-shape="full">Ganzes Bild</button>
+      </div>
+      <label class="stk-zoom">Größe<input type="range" id="stkZoom" min="0.5" max="4" step="0.01" value="1"></label>
+      <input id="stkText" maxlength="30" placeholder="Text auf dem Sticker (optional)" autocomplete="off">
+      <div class="modal-actions">
+        <button id="stkCancel" class="ghost" type="button">Abbrechen</button>
+        <button id="stkSave" class="primary" type="button">Speichern</button>
+      </div>
+    </div>
+  </div>
 
   <script src="../node_modules/peerjs/dist/peerjs.min.js"></script>
   <script src="emojis.js"></script>

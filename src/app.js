@@ -12,7 +12,9 @@
   const MAX_MB = 25;                                              // max. Größe pro Bild/GIF
   const MAX_MEDIA = Math.ceil(MAX_MB * 1024 * 1024 * 4 / 3) + 64; // als Base64-Daten-URL
   const OLD_MAX_MEDIA = 10 * 1024 * 1024; // Grenze bis v1.10 – ältere Versionen lehnen Größeres ab
-  const PROTO = 4;                        // Protokoll-Version (3 = große Dateien bis 25 MB, 4 = Sprachnachrichten)
+  const PROTO = 5;                        // Protokoll-Version (3 = große Dateien bis 25 MB, 4 = Sprachnachrichten, 5 = Sticker)
+  const STICKER_OWNER = 'V5KGWG';         // nur dieser Nutzer hat die Sticker-Funktion
+  const STICKER_MAX = 1.5 * 1024 * 1024;
   const MAX_AVATAR = 300 * 1024;
   const MEDIA_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
   const AUDIO_RE = /^data:audio\/(mp4|webm|ogg|mpeg|aac|x-m4a);base64,/;
@@ -196,6 +198,10 @@
 
   function validMedia(m) {
     if (!m || typeof m !== 'object') return null;
+    if (m.kind === 'sticker') {
+      if (typeof m.data !== 'string' || m.data.length > STICKER_MAX || !/^data:image\/(png|webp);base64,/.test(m.data.slice(0, 30))) return null;
+      return { kind: 'sticker', data: m.data, w: 512, h: 512 };
+    }
     if (m.kind === 'audio') {
       if (typeof m.data !== 'string' || m.data.length > MAX_MEDIA || !AUDIO_RE.test(m.data.slice(0, 40))) return null;
       const dur = Math.round(Number(m.dur) * 10) / 10;
@@ -437,8 +443,9 @@
     const list = (chats[chatId] = chats[chatId] || []);
     if (!list.some((m) => m.id === id)) {
       const text = clean(data.text, MAX_TEXT);
-      const media = validMedia(data.media);
-      if (!text && !media) return;
+      let media = validMedia(data.media);
+      if (media && media.kind === 'sticker' && from !== STICKER_OWNER) media = null;
+      if (!text && !media) { sendData(from, gid ? { type: 'ack', id, gid } : { type: 'ack', id }); return; }
       const msg = { id, from, text, ts: clampTs(data.ts) };
       if (media) { msg.media = mediaMeta(media); putMedia(chatId, id, media.data); }
       list.push(msg);
@@ -483,7 +490,9 @@
         return;
       }
       // Ältere Versionen kennen keine Sprachnachrichten: Hinweistext statt Datei
-      if (msg.media.kind === 'audio' && ((contacts[code] && contacts[code].v) || 1) < 4) wire.text = '🎤 Sprachnachricht – aktualisiere WhatsUp, um sie anzuhören.';
+      const peerV = (contacts[code] && contacts[code].v) || 1;
+      if (msg.media.kind === 'audio' && peerV < 4) wire.text = '🎤 Sprachnachricht – aktualisiere WhatsUp, um sie anzuhören.';
+      else if (msg.media.kind === 'sticker' && peerV < 5) wire.text = '🩷 Sticker – aktualisiere WhatsUp, um ihn zu sehen.';
       else wire.media = { ...mediaMeta(msg.media), data };
     }
     if (chatId.startsWith('g:')) { wire.type = 'gmsg'; wire.gid = chatId.slice(2); } else wire.type = 'msg';
@@ -829,7 +838,7 @@
   const fmtDay = (ts) => new Date(ts).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   const durText = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const preview = (m) => (m.media
-    ? (m.media.kind === 'audio' ? '🎤 Sprachnachricht (' + durText(m.media.dur) + ')' : m.media.kind === 'gif' ? '🎞️ GIF' : '📷 Bild') + (m.text ? ' ' + m.text : '')
+    ? (m.media.kind === 'sticker' ? '🩷 Sticker' : m.media.kind === 'audio' ? '🎤 Sprachnachricht (' + durText(m.media.dur) + ')' : m.media.kind === 'gif' ? '🎞️ GIF' : '📷 Bild') + (m.text ? ' ' + m.text : '')
     : m.text);
 
   function el(tag, cls, text) {
@@ -1003,8 +1012,10 @@
       lastFrom = m.from;
       const big = !m.media && onlyEmoji(m.text);
       const isVoice = m.media && m.media.kind === 'audio';
-      const div = el('div', 'msg ' + (mine ? 'me' : 'them') + (big ? ' big' : '') + (isVoice ? ' has-voice' : m.media ? ' has-media' : ''));
-      if (isVoice) div.appendChild(voice.el(chatId, m));
+      const isSticker = m.media && m.media.kind === 'sticker';
+      const div = el('div', 'msg ' + (mine ? 'me' : 'them') + (big ? ' big' : '') + (isSticker ? ' sticker' : isVoice ? ' has-voice' : m.media ? ' has-media' : ''));
+      if (isSticker) div.appendChild(stickers.view(chatId, m));
+      else if (isVoice) div.appendChild(voice.el(chatId, m));
       else if (m.media) div.appendChild(mediaEl(chatId, m));
       if (m.text) div.appendChild(el('div', 'text', m.text));
       let tick = '';
@@ -1260,6 +1271,7 @@
     const ext = (/^data:image\/(\w+)/.exec(src) || [])[1] || 'png';
     $('viewerSave').href = src;
     $('viewerSave').download = `whatsup-${new Date(m.ts).toISOString().slice(0, 10)}-${m.id.slice(0, 6)}.${ext === 'jpeg' ? 'jpg' : ext}`;
+    $('viewerSticker').classList.toggle('hidden', !stickers.isOwner());
     $('viewer').classList.remove('hidden');
   }
   $('viewerClose').onclick = () => $('viewer').classList.add('hidden');
@@ -1272,7 +1284,8 @@
   function renderEmojiPanel() {
     const tabs = $('emojiTabs');
     tabs.replaceChildren();
-    [['recent', '🕓'], ...Object.keys(EMOJI).map((k) => [k, k])].forEach(([key, icon]) => {
+    if (emojiTab === 'stickers' && !stickers.isOwner()) emojiTab = 'recent';
+    [...(stickers.isOwner() ? [['stickers', '🩷']] : []), ['recent', '🕓'], ...Object.keys(EMOJI).map((k) => [k, k])].forEach(([key, icon]) => {
       const b = el('button', 'emoji-tab' + (key === emojiTab ? ' active' : ''), icon);
       b.type = 'button';
       b.onclick = () => { emojiTab = key; renderEmojiPanel(); };
@@ -1280,6 +1293,8 @@
     });
     const grid = $('emojiGrid');
     grid.replaceChildren();
+    grid.classList.remove('sticker-grid');
+    if (emojiTab === 'stickers') { stickers.renderGrid(grid); return; }
     const list = emojiTab === 'recent' ? recentEmojis : EMOJI[emojiTab].split(' ');
     if (!list.length) grid.appendChild(el('div', 'muted', 'Noch keine Emojis benutzt.'));
     list.forEach((e) => {
@@ -1553,7 +1568,8 @@
   $('modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (!$('stCompose').classList.contains('hidden')) $('stComposeClose').click();
+    if (!$('stkEditor').classList.contains('hidden')) $('stkCancel').click();
+    else if (!$('stCompose').classList.contains('hidden')) $('stComposeClose').click();
     else if (!$('viewer').classList.contains('hidden')) $('viewer').classList.add('hidden');
     else if (!$('modal').classList.contains('hidden')) closeModal();
     else if (!$('emojiPanel').classList.contains('hidden')) hideEmoji();
@@ -1677,6 +1693,168 @@
   window.addEventListener('focus', () => {
     if (activeChat && unread[activeChat]) { delete unread[activeChat]; saveMeta(); scheduleRender(); }
   });
+
+  // ================= Sticker (nur für einen bestimmten Nutzer) =================
+  // Nur STICKER_OWNER kann Sticker erstellen, speichern und senden. Alle anderen sehen sie nur:
+  // kein Sticker-Tab, kein Speichern (Anzeige als Hintergrundbild), Sticker von anderen werden verworfen.
+  const stickers = (() => {
+    const MAX = 200;
+    const isOwner = () => !!me && me.code === STICKER_OWNER;
+    let list = store.load('stickers', []);          // [{ id, ts }]
+    const key = (id) => 'stk|' + id;
+    const save = () => store.save('stickers', list);
+    const cache = new Map();
+    async function data(id) {
+      if (cache.has(id)) return cache.get(id);
+      const d = await db.get('media', key(id)).catch(() => null);
+      if (d) cache.set(id, d);
+      return d;
+    }
+    async function add(d) {
+      const id = crypto.randomUUID();
+      await db.put('media', key(id), d);
+      cache.set(id, d);
+      list.unshift({ id, ts: Date.now() });
+      while (list.length > MAX) { const old = list.pop(); db.del('media', key(old.id)).catch(() => {}); cache.delete(old.id); }
+      save();
+    }
+    function remove(id) {
+      list = list.filter((s) => s.id !== id);
+      db.del('media', key(id)).catch(() => {});
+      cache.delete(id);
+      save();
+    }
+    async function send(id) {
+      if (!isOwner() || !activeChat) return;
+      const d = await data(id);
+      if (!d) return;
+      hideEmoji();
+      // zuletzt benutzt nach vorne
+      const s = list.find((x) => x.id === id);
+      if (s) { list = [s, ...list.filter((x) => x !== s)]; save(); }
+      await sendMessage(activeChat, '', { kind: 'sticker', data: d, w: 512, h: 512 });
+    }
+
+    // ---------- Panel (Tab im Emoji-Feld) ----------
+    function renderGrid(grid) {
+      grid.classList.add('sticker-grid');
+      const add = el('button', 'stk-tile add', '+ Neuer Sticker');
+      add.type = 'button';
+      add.onclick = () => $('stickerInput').click();
+      grid.appendChild(add);
+      list.forEach((s) => {
+        const t = el('button', 'stk-tile');
+        t.type = 'button';
+        t.title = 'Senden · Rechtsklick/gedrückt halten zum Löschen';
+        data(s.id).then((d) => { if (d) t.style.backgroundImage = `url("${d}")`; });
+        let held = null, longPress = false;
+        const del = () => { if (confirm('Diesen Sticker löschen?')) { remove(s.id); t.remove(); } };
+        t.onpointerdown = () => { longPress = false; held = setTimeout(() => { longPress = true; del(); }, 600); };
+        t.onpointerup = t.onpointerleave = () => clearTimeout(held);
+        t.oncontextmenu = (e) => { e.preventDefault(); clearTimeout(held); del(); };
+        t.onclick = () => { if (!longPress) send(s.id); };
+        grid.appendChild(t);
+      });
+    }
+
+    // ---------- Editor ----------
+    const cv = $('stkCanvas'), g = cv.getContext('2d');
+    let img = null, shape = 'round', zoom = 1, pan = { x: 0, y: 0 };
+    function open(src) {
+      if (!isOwner()) return;
+      loadImg(src).then((i) => {
+        img = i; zoom = 1; pan = { x: 0, y: 0 };
+        $('stkZoom').value = '1';
+        $('stkText').value = '';
+        setShape('round');
+        $('viewer').classList.add('hidden');
+        $('stkEditor').classList.remove('hidden');
+      }, () => toast('⚠️ Das Bild konnte nicht gelesen werden.'));
+    }
+    function close() { $('stkEditor').classList.add('hidden'); img = null; }
+    function setShape(s) {
+      shape = s;
+      $('stkShape').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.shape === s));
+      draw();
+    }
+    function clipPath(c) {
+      c.beginPath();
+      if (shape === 'round') c.arc(256, 256, 236, 0, Math.PI * 2);
+      else if (shape === 'square') c.roundRect(20, 20, 472, 472, 70);
+      else c.rect(0, 0, 512, 512);
+    }
+    function draw() {
+      if (!img) return;
+      g.clearRect(0, 0, 512, 512);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const base = shape === 'full' ? Math.min(512 / w, 512 / h) : Math.max(472 / w, 472 / h);
+      const s = base * zoom, dw = w * s, dh = h * s;
+      g.save();
+      clipPath(g);
+      g.clip();
+      g.drawImage(img, 256 - dw / 2 + pan.x, 256 - dh / 2 + pan.y, dw, dh);
+      g.restore();
+      // weißer Sticker-Rand
+      if (shape !== 'full') {
+        g.save(); clipPath(g); g.lineWidth = 14; g.strokeStyle = '#fff'; g.stroke(); g.restore();
+      }
+      const text = $('stkText').value.trim();
+      if (text) {
+        let size = 72;
+        g.font = `900 ${size}px "Segoe UI", system-ui, sans-serif`;
+        while (g.measureText(text).width > 440 && size > 28) { size -= 4; g.font = `900 ${size}px "Segoe UI", system-ui, sans-serif`; }
+        g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+        g.lineJoin = 'round'; g.lineWidth = Math.max(6, size / 6); g.strokeStyle = '#000';
+        g.strokeText(text, 256, 470); g.fillStyle = '#fff'; g.fillText(text, 256, 470);
+      }
+    }
+    // Verschieben mit Maus/Finger
+    let drag = null;
+    cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const f = 512 / cv.clientWidth;
+      pan.x = drag.px + (e.clientX - drag.x) * f;
+      pan.y = drag.py + (e.clientY - drag.y) * f;
+      draw();
+    });
+    cv.addEventListener('pointerup', () => { drag = null; });
+    cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom = Math.max(0.5, Math.min(4, zoom * (e.deltaY < 0 ? 1.08 : 0.93))); $('stkZoom').value = String(zoom); draw(); }, { passive: false });
+    $('stkZoom').oninput = (e) => { zoom = Number(e.target.value) || 1; draw(); };
+    $('stkText').oninput = draw;
+    $('stkShape').querySelectorAll('button').forEach((b) => { b.onclick = () => setShape(b.dataset.shape); });
+    $('stkCancel').onclick = close;
+    $('stkEditor').onclick = (e) => { if (e.target.id === 'stkEditor') close(); };
+    $('stkSave').onclick = async () => {
+      if (!img) return;
+      draw();
+      let d = cv.toDataURL('image/webp', 0.9);
+      if (!d.startsWith('data:image/webp')) d = cv.toDataURL('image/png'); // Safari kann kein WebP erzeugen
+      if (d.length > STICKER_MAX) { toast('⚠️ Sticker ist zu groß'); return; }
+      await add(d);
+      close();
+      toast('Sticker gespeichert ✓');
+      if (!$('emojiPanel').classList.contains('hidden')) renderEmojiPanel();
+    };
+    $('stickerInput').onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f || !f.type.startsWith('image/')) return;
+      open(await readAsDataURL(f));
+    };
+    // Bild aus dem Chat als Sticker übernehmen
+    $('viewerSticker').onclick = () => open($('viewerImg').src);
+
+    // Anzeige im Chat (für alle): nur ansehen
+    function view(cid, m) {
+      const d = el('div', 'stk');
+      d.setAttribute('role', 'img');
+      d.setAttribute('aria-label', 'Sticker');
+      getMedia(cid, m.id).then((x) => { if (x) d.style.backgroundImage = `url("${x}")`; });
+      d.oncontextmenu = (e) => e.preventDefault();
+      return d;
+    }
+    return { isOwner, renderGrid, view, open };
+  })();
 
   // ================= Sprachnachrichten =================
   // Aufnahme mit MediaRecorder (bevorzugt MP4/AAC: spielt auf iPhone, Windows und Android),
@@ -2374,7 +2552,7 @@
           const ts = clampTs(data.ts);
           if (Date.now() - ts >= TTL) return;
           const media = validMedia(data.media);
-          if (media && media.kind === 'audio') return; // Status nur mit Bildern
+          if (media && (media.kind === 'audio' || media.kind === 'sticker')) return; // Status nur mit Bildern
           if (!media) return;
           const list = (all[code] = all[code] || []);
           if (list.some((s) => s.id === id)) return;

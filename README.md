@@ -67,6 +67,7 @@ Mit **Test senden** kommt nach 5 Sekunden ein echter Test-Push über den Server.
 | 🧹 **Chat leeren** | Verlauf eines Chats löschen und Speicher freigeben. Übersicht aller Chats nach Größe in den Einstellungen |
 | 🌅 **Status** | Wie bei WhatsApp: ein oder mehrere Bilder mit Beschreibung teilen, 24 Stunden sichtbar. Ansehen als Slides (tippen, wischen, gedrückt halten = Pause), Reaktionen mit Emojis, „Angesehen von“ für deine eigenen Status |
 | 🎤 **Sprachnachrichten** | Mikrofon-Knopf im Chat (erscheint, wenn das Eingabefeld leer ist). Aufnahme mit Live-Pegel, verwerfen oder senden. Abspielen mit Wellenform, Vorspulen per Tippen und 1×/1,5×/2× Tempo. Funktioniert zwischen Windows, iPhone und Browser |
+| 🩷 **Sticker** | Exklusiv für einen Nutzer: Sticker aus eigenen Bildern erstellen (rund, eckig oder ganzes Bild, Größe, Text), speichern und senden. Alle anderen sehen die Sticker nur und können sie weder speichern noch benutzen |
 | 📞 **Anrufe** | Sprach- und Videoanrufe im Einzelchat, direkt verschlüsselt zwischen den Geräten. Eigenes Bild klein in der Ecke (verschiebbar, antippen zum Tauschen), Kamera drehen, stummschalten, Kamera aus. Verpasste Anrufe stehen im Chat |
 | 🧭 **Leiste unten** | Status links, Chats in der Mitte, Einstellungen („Du“) rechts |
 | 📱 **Web-Version** | Für iPhone, iPad und Android, chattet direkt mit der Windows-App |

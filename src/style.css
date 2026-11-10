@@ -497,3 +497,30 @@ button.primary:disabled { opacity: .35; cursor: default; }
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 .msg.me .vplay, .msg.me .vspeed { color: var(--on-accent); }
+
+/* ================= Sticker ================= */
+.msg.sticker { background: none !important; padding: 0; }
+.msg.sticker .meta { color: var(--muted); opacity: 1; }
+/* Als Hintergrundbild statt <img>: kein „Bild sichern“, kein Kopieren, kein Ziehen */
+.stk {
+  width: 140px; height: 140px; background: center / contain no-repeat;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; pointer-events: none;
+}
+.emoji-grid.sticker-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; padding: 6px 8px; }
+.stk-tile {
+  aspect-ratio: 1; border-radius: 10px; background: center / 86% no-repeat; position: relative;
+  -webkit-touch-callout: none; user-select: none;
+}
+.stk-tile:hover { background-color: var(--soft); }
+.stk-tile.add { display: grid; place-items: center; border: 1.5px dashed var(--line); color: var(--muted); font-size: 12px; text-align: center; line-height: 1.3; }
+.stk-tile.add:hover { color: var(--fg); border-color: var(--muted); }
+.stk-modal { z-index: 45; }
+.stk-box { max-width: 340px; align-items: stretch; }
+.stk-canvas {
+  width: 100%; aspect-ratio: 1; border-radius: 12px; cursor: grab; touch-action: none;
+  background: repeating-conic-gradient(var(--soft) 0 25%, var(--bg) 0 50%) 0 0 / 20px 20px;
+}
+.stk-canvas:active { cursor: grabbing; }
+.stk-zoom { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.stk-zoom input { flex: 1; padding: 0; background: none; accent-color: var(--accent); }
+.stk-zoom input:focus { box-shadow: none; }
