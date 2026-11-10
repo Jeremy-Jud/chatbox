@@ -999,9 +999,8 @@
       $('chatName').textContent = c.name;
       const fb = fire.badge(code);
       if (fb) $('chatName').appendChild(el('span', 'fire', fb));
-      const fh = fire.hint(code);
-      $('chatSub').textContent = [isOnline(code) ? 'online' : 'offline', fh, c.status].filter(Boolean).join(' · ');
-      $('chatSub').title = fh ? 'Streak: Schreibt euch jeden Tag beide mindestens eine Nachricht, sonst ist er weg.' : '';
+      $('chatSub').textContent = (isOnline(code) ? 'online' : 'offline') + (c.status ? ' · ' + c.status : '');
+      $('chatName').title = fb ? 'Streak: Schreibt euch jeden Tag beide mindestens eine Nachricht, sonst ist er weg.' : '';
     }
 
     const box = $('messages');
