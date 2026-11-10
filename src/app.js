@@ -83,7 +83,7 @@
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
   const stats = Object.assign({
     sent: 0, groupSent: 0, images: 0, gifs: 0, emojis: 0, received: 0, groupsCreated: 0,
-    avatarSet: 0, night: 0, early: 0, days: 0, streak: 0, maxStreak: 0, lastDay: '',
+    avatarSet: 0, statuses: 0, night: 0, early: 0, days: 0, streak: 0, maxStreak: 0, lastDay: '',
   }, store.load('stats', {}));
   let chats = {};                                  // chatId -> [Nachricht]
   const mediaCache = new Map();
@@ -297,6 +297,7 @@
       conn.send(helloPayload(code));
       Object.values(groups).forEach((g) => { if (g.members.includes(code)) conn.send({ type: 'group', group: g }); });
       flushPending(code);
+      stories.syncTo(code);
       scheduleRender();
     });
     conn.on('data', (data) => { try { handleData(code, data); } catch (e) { console.error(e); } });
@@ -399,6 +400,9 @@
         saveMeta(); connectAll(); scheduleRender();
         break;
       }
+      case 'status': case 'sdel': case 'slist': case 'sget': case 'sreact': case 'sseen':
+        stories.handle(code, data).catch(console.error);
+        break;
       case 'gleave': {
         const g = groups[data.gid];
         if (!g || !g.members.includes(code)) return;
@@ -852,14 +856,17 @@
 
   let view = 'viewSetup';
   let activeChat = null;
-  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewSettings: 'Einstellungen', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp' };
+  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewSettings: 'Einstellungen', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp', viewStatus: 'Status' };
+  const TABS = ['viewStatus', 'viewList', 'viewSettings'];
+  let lastTab = 'viewList';
 
   function show(v) {
     view = v;
-    ['viewSetup', 'viewList', 'viewChat', 'viewSettings', 'viewAchievements'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
-    $('settingsBtn').classList.toggle('hidden', v === 'viewSetup');
-    $('settingsBtn').classList.toggle('active', v === 'viewSettings');
-    $('backBtn').classList.toggle('hidden', v === 'viewList' || v === 'viewSetup');
+    if (TABS.includes(v)) lastTab = v;
+    ['viewSetup', 'viewList', 'viewChat', 'viewSettings', 'viewAchievements', 'viewStatus'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
+    $('tabbar').classList.toggle('hidden', !TABS.includes(v));
+    document.querySelectorAll('#tabbar .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === v));
+    $('backBtn').classList.toggle('hidden', TABS.includes(v) || v === 'viewSetup');
     $('trophyBtn').classList.toggle('hidden', v === 'viewSetup');
     $('trophyBtn').classList.toggle('active', v === 'viewAchievements');
     $('titleText').textContent = TITLES[v];
@@ -877,9 +884,31 @@
     if (!me) return;
     updateBadge();
     renderList();
+    renderTabs();
+    if (view === 'viewStatus') stories.renderList();
     if (view === 'viewChat') renderChat();
     if (view === 'viewAchievements') renderAchievements();
   }
+
+  // Leiste unten: ungelesene Chats, neue Status, eigenes Profilbild
+  function renderTabs() {
+    const n = Object.values(unread).reduce((a, b) => a + (b || 0), 0);
+    $('chatsBadge').textContent = n > 99 ? '99+' : String(n);
+    $('chatsBadge').classList.toggle('hidden', !n);
+    $('statusDot').classList.toggle('hidden', !stories.unseenCount());
+    const key = [me.name, me.avatar, me.code].join('|');
+    if ($('tabMeAvatar').dataset.key !== key) {
+      $('tabMeAvatar').dataset.key = key;
+      $('tabMeAvatar').replaceChildren(avatarEl(me.name, me.avatar, me.code));
+    }
+  }
+  document.querySelectorAll('#tabbar .tab').forEach((t) => {
+    t.onclick = () => {
+      const v = t.dataset.tab;
+      if (v === 'viewSettings') { if (view !== 'viewSettings') openSettings(); return; }
+      show(v); render();
+    };
+  });
 
   const lastMsg = (chatId) => { const l = chats[chatId]; return l && l.length ? l[l.length - 1] : null; };
 
@@ -1487,16 +1516,16 @@
   $('minBtn').onclick = () => window.chatboxWindow.minimize();
   $('closeBtn').onclick = () => window.chatboxWindow.close();
   $('pinBtn').onclick = async () => { const p = await window.chatboxWindow.togglePin(); $('pinBtn').classList.toggle('active', p); };
-  $('backBtn').onclick = () => (view === 'viewChat' ? closeChat() : (show('viewList'), render()));
+  $('backBtn').onclick = () => (view === 'viewChat' ? closeChat() : (show(lastTab), render()));
   $('trophyBtn').onclick = () => { show('viewAchievements'); renderAchievements(); };
-  $('settingsBtn').onclick = openSettings;
   $('meCardBtn').onclick = openSettings;
   $('newGroupBtn').onclick = openNewGroup;
   $('chatHead').onclick = openInfo;
   $('modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (!$('viewer').classList.contains('hidden')) $('viewer').classList.add('hidden');
+    if (!$('stCompose').classList.contains('hidden')) $('stComposeClose').click();
+    else if (!$('viewer').classList.contains('hidden')) $('viewer').classList.add('hidden');
     else if (!$('modal').classList.contains('hidden')) closeModal();
     else if (!$('emojiPanel').classList.contains('hidden')) hideEmoji();
   });
@@ -1618,6 +1647,530 @@
     if (activeChat && unread[activeChat]) { delete unread[activeChat]; saveMeta(); scheduleRender(); }
   });
 
+  // ================= Status (wie bei WhatsApp: Bilder mit Beschreibung, 24 Stunden sichtbar) =================
+  // Verteilung: direkt an Freunde (P2P) oder verschlüsselt über den Briefkasten-Server.
+  // Beim Verbinden gleichen beide ihre Liste ab (slist/sget), so kommt auch Verpasstes an.
+  const stories = (() => {
+    const TTL = 24 * 3600 * 1000;
+    const SHOW_MS = 5000;
+    const MAX_ITEMS = 30;
+    const REACTIONS = ['❤️', '😂', '😮', '😢', '😍', '👏', '🔥', '👍'];
+    // code -> [{ id, ts, caption, kind, w, h, seen, seenSent, myReaction, reactions{code:emoji}, views[] }]
+    const all = store.load('statuses', {});
+    const save = () => store.save('statuses', all);
+    const mkey = (code) => 'st:' + code;
+    const alive = (s) => Date.now() - s.ts < TTL;
+    const validId = (x) => typeof x === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(x);
+    const validEmoji = (e) => typeof e === 'string' && e.length <= 16 && /\p{Extended_Pictographic}/u.test(e);
+
+    const ofCode = (code) => (all[code] || []).filter(alive).sort((a, b) => a.ts - b.ts);
+    const mine = () => ofCode(me.code);
+    const hasUnseen = (code) => ofCode(code).some((s) => !s.seen);
+    const latest = (code) => { const l = ofCode(code); return l.length ? l[l.length - 1].ts : 0; };
+    const people = () => Object.keys(all).filter((c) => c !== me.code && isFriend(c) && !blocked.includes(c) && ofCode(c).length);
+    const unseenCount = () => people().filter(hasUnseen).length;
+
+    function dropMedia(code, id) {
+      const k = mediaKey(mkey(code), id);
+      mediaCache.delete(k);
+      db.del('media', k).catch(() => {});
+    }
+    // Abgelaufene Status und Status von Ex-Freunden löschen
+    function prune() {
+      let changed = false;
+      for (const code of Object.keys(all)) {
+        const keep = code === me.code || (isFriend(code) && !blocked.includes(code));
+        const list = all[code].filter((s) => {
+          if (keep && alive(s)) return true;
+          dropMedia(code, s.id);
+          return false;
+        });
+        if (list.length !== all[code].length) changed = true;
+        if (list.length) all[code] = list; else delete all[code];
+      }
+      if (changed) { save(); scheduleRender(); }
+    }
+
+    const wire = (s, data) => ({ type: 'status', id: s.id, ts: s.ts, caption: s.caption, media: { kind: s.kind, data, w: s.w, h: s.h } });
+
+    // Eigene Status veröffentlichen: items = [{ media, caption }]
+    async function post(items) {
+      const list = (all[me.code] = all[me.code] || []);
+      for (const it of items) {
+        const s = {
+          id: crypto.randomUUID(), ts: Date.now(), caption: clean(it.caption, 300),
+          kind: it.media.kind, w: it.media.w, h: it.media.h, seen: true, reactions: {}, views: [],
+        };
+        await putMedia(mkey(me.code), s.id, it.media.data);
+        list.push(s);
+        friendCodes().filter((c) => !blocked.includes(c)).forEach((c) => sendData(c, wire(s, it.media.data)));
+      }
+      while (list.length > MAX_ITEMS) { const old = list.shift(); dropMedia(me.code, old.id); }
+      stats.statuses = (stats.statuses || 0) + items.length;
+      save(); saveMeta(); checkAchievements(); scheduleRender();
+    }
+
+    function removeMine(id) {
+      if (!all[me.code]) return;
+      all[me.code] = all[me.code].filter((s) => s.id !== id);
+      if (!all[me.code].length) delete all[me.code];
+      dropMedia(me.code, id);
+      friendCodes().forEach((c) => sendData(c, { type: 'sdel', id }));
+      save(); scheduleRender();
+    }
+
+    // Beim Verbinden: „Diese Status habe ich gerade“
+    function syncTo(code) {
+      if (!isFriend(code)) return;
+      sendTo(code, { type: 'slist', ids: mine().map((s) => s.id) });
+    }
+
+    async function handle(code, data) {
+      if (!isFriend(code) || blocked.includes(code)) return;
+      const id = validId(data.id) ? data.id : null;
+      switch (data.type) {
+        case 'status': {
+          if (!id) return;
+          const ts = clampTs(data.ts);
+          if (Date.now() - ts >= TTL) return;
+          const media = validMedia(data.media);
+          if (!media) return;
+          const list = (all[code] = all[code] || []);
+          if (list.some((s) => s.id === id)) return;
+          await putMedia(mkey(code), id, media.data);
+          list.push({ id, ts, caption: clean(data.caption, 300), kind: media.kind, w: media.w, h: media.h, seen: false });
+          while (list.length > MAX_ITEMS) { const old = list.shift(); dropMedia(code, old.id); }
+          save(); scheduleRender();
+          break;
+        }
+        case 'sdel': {
+          if (!id || !all[code] || !all[code].some((s) => s.id === id)) return;
+          all[code] = all[code].filter((s) => s.id !== id);
+          if (!all[code].length) delete all[code];
+          dropMedia(code, id);
+          save(); scheduleRender(); viewer.changed(code);
+          break;
+        }
+        case 'slist': {
+          if (!Array.isArray(data.ids)) return;
+          const ids = data.ids.filter(validId).slice(0, MAX_ITEMS);
+          const have = all[code] || [];
+          const gone = have.filter((s) => !ids.includes(s.id));
+          if (gone.length) {
+            gone.forEach((s) => dropMedia(code, s.id));
+            all[code] = have.filter((s) => ids.includes(s.id));
+            if (!all[code].length) delete all[code];
+            save(); scheduleRender(); viewer.changed(code);
+          }
+          const missing = ids.filter((x) => !have.some((s) => s.id === x));
+          if (missing.length) sendTo(code, { type: 'sget', ids: missing });
+          break;
+        }
+        case 'sget': {
+          if (!Array.isArray(data.ids)) return;
+          const want = data.ids.filter(validId);
+          for (const s of mine()) {
+            if (!want.includes(s.id)) continue;
+            const d = await getMedia(mkey(me.code), s.id);
+            if (d) sendTo(code, wire(s, d));
+          }
+          break;
+        }
+        case 'sreact': {
+          const s = id && (all[me.code] || []).find((x) => x.id === id);
+          if (!s || !validEmoji(data.emoji)) return;
+          s.reactions = s.reactions || {};
+          s.views = s.views || [];
+          s.reactions[code] = data.emoji;
+          if (!s.views.includes(code)) s.views.push(code);
+          save(); viewer.changed(me.code);
+          const text = `hat auf deinen Status reagiert ${data.emoji}`;
+          if (document.hasFocus()) toast(`${data.emoji} ${nameOf(code)} ${text.replace(/ \S+$/, '')}`);
+          notify(nameOf(code), text, { icon: contacts[code] && contacts[code].avatar });
+          break;
+        }
+        case 'sseen': {
+          const s = id && (all[me.code] || []).find((x) => x.id === id);
+          if (!s) return;
+          s.views = s.views || [];
+          if (!s.views.includes(code)) { s.views.push(code); save(); viewer.changed(me.code); }
+          break;
+        }
+      }
+    }
+
+    // ---------- Zeitangaben ----------
+    function ago(ts) {
+      const min = Math.floor((Date.now() - ts) / 60000);
+      if (min < 1) return 'Gerade eben';
+      if (min < 60) return `Vor ${min} Min.`;
+      const d = new Date(ts), today = new Date();
+      return (d.getDate() === today.getDate() ? 'Heute, ' : 'Gestern, ') + fmtTime(ts);
+    }
+
+    // ---------- Avatar mit Ring (ein Segment pro Status) ----------
+    function ringEl(code, list) {
+      const c = code === me.code ? me : contacts[code] || {};
+      const r = el('span', 'st-ring' + (list.length ? '' : ' none'));
+      if (list.length) {
+        const n = list.length, seg = 360 / n, gap = n > 1 ? 5 : 0;
+        const parts = list.map((s, i) => {
+          const col = code !== me.code && s.seen ? 'var(--st-seen)' : 'var(--accent)';
+          const a = i * seg + gap / 2, b = (i + 1) * seg - gap / 2;
+          return `transparent ${i * seg}deg ${a}deg, ${col} ${a}deg ${b}deg, transparent ${b}deg ${(i + 1) * seg}deg`;
+        });
+        r.style.background = `conic-gradient(${parts.join(', ')})`;
+      }
+      r.appendChild(avatarEl(c.name, c.avatar, code));
+      return r;
+    }
+
+    // ---------- Liste ----------
+    function renderList() {
+      const ul = $('statusList');
+      ul.replaceChildren();
+      const my = mine();
+      const meLi = el('li');
+      const ring = ringEl(me.code, my);
+      const add = el('span', 'st-add');
+      add.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>';
+      add.title = 'Status hinzufügen';
+      add.onclick = (e) => { e.stopPropagation(); pick(); };
+      ring.appendChild(add);
+      meLi.appendChild(ring);
+      const meta = el('div', 'fmeta');
+      meta.appendChild(el('div', 'fname', 'Mein Status'));
+      meta.appendChild(el('div', 'flast', my.length ? `${my.length} ${my.length === 1 ? 'Update' : 'Updates'} · ${ago(my[my.length - 1].ts)}` : 'Tippe, um einen Status hinzuzufügen'));
+      meLi.appendChild(meta);
+      meLi.onclick = () => (my.length ? viewer.open([me.code], 0) : pick());
+      meLi.id = 'stMine';
+      ul.appendChild(meLi);
+
+      const order = people().sort((a, b) => latest(b) - latest(a));
+      const fresh = order.filter(hasUnseen), seen = order.filter((c) => !hasUnseen(c));
+      const queue = [...fresh, ...seen];
+      [['Neu', fresh], ['Angesehen', seen]].forEach(([title, codes]) => {
+        if (!codes.length) return;
+        ul.appendChild(el('li', 'listhead', title));
+        codes.forEach((code) => {
+          const li = el('li');
+          li.dataset.code = code;
+          li.appendChild(ringEl(code, ofCode(code)));
+          const m = el('div', 'fmeta');
+          m.appendChild(el('div', 'fname', nameOf(code)));
+          m.appendChild(el('div', 'flast', ago(latest(code))));
+          li.appendChild(m);
+          li.onclick = () => viewer.open(queue, queue.indexOf(code));
+          ul.appendChild(li);
+        });
+      });
+      if (!order.length) ul.appendChild(el('li', 'st-empty', friendCodes().length
+        ? 'Noch keine Status von deinen Freunden.\nWenn jemand etwas teilt, siehst du es hier.'
+        : 'Füge Freunde hinzu, um ihre Status zu sehen.'));
+    }
+
+    // ---------- Erstellen ----------
+    let draft = [];   // [{ media, caption }]
+    let draftIdx = 0;
+    function pick() { $('statusInput').click(); }
+    async function addFiles(files) {
+      const list = [...files].filter((f) => f.type.startsWith('image/')).slice(0, 10);
+      if (!list.length) return;
+      const before = draft.length;
+      for (const f of list) {
+        if (draft.length >= 10) break;
+        try { draft.push({ media: await prepareImage(f), caption: '' }); }
+        catch (e) { toast('⚠️ ' + e.message); }
+      }
+      if (!draft.length) return;
+      draftIdx = Math.min(before, draft.length - 1);
+      const box = $('stCompose');
+      if (box.classList.contains('hidden')) { box.classList.remove('hidden'); box.classList.add('opening'); setTimeout(() => box.classList.remove('opening'), 250); }
+      renderDraft();
+    }
+    function keepCaption() { if (draft[draftIdx]) draft[draftIdx].caption = $('stCaption').value; }
+    function renderDraft() {
+      if (!draft.length) { closeCompose(); return; }
+      draftIdx = Math.min(draftIdx, draft.length - 1);
+      $('stComposeImg').src = draft[draftIdx].media.data;
+      $('stCaption').value = draft[draftIdx].caption;
+      const th = $('stThumbs');
+      th.replaceChildren();
+      draft.forEach((d, i) => {
+        const t = el('button', 'st-thumb' + (i === draftIdx ? ' active' : ''));
+        t.type = 'button';
+        const img = document.createElement('img'); img.src = d.media.data; img.alt = '';
+        t.appendChild(img);
+        t.onclick = () => { keepCaption(); draftIdx = i; renderDraft(); };
+        th.appendChild(t);
+      });
+      if (draft.length < 10) {
+        const more = el('button', 'st-thumb more');
+        more.type = 'button'; more.title = 'Weitere Bilder';
+        more.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>';
+        more.onclick = () => { keepCaption(); pick(); };
+        th.appendChild(more);
+      }
+      if (!window.matchMedia('(pointer: coarse)').matches) $('stCaption').focus();
+    }
+    function closeCompose() {
+      draft = []; draftIdx = 0;
+      $('stCompose').classList.add('hidden');
+      $('stCaption').value = '';
+    }
+    $('statusInput').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
+    $('stComposeClose').onclick = closeCompose;
+    $('stComposeDel').onclick = () => { draft.splice(draftIdx, 1); renderDraft(); };
+    $('stComposeForm').onsubmit = async (e) => {
+      e.preventDefault();
+      keepCaption();
+      const items = draft.slice();
+      closeCompose();
+      if (!items.length) return;
+      await post(items);
+      toast(items.length === 1 ? 'Status geteilt ✓' : `${items.length} Status geteilt ✓`);
+    };
+
+    // ---------- Ansehen (Slides) ----------
+    const viewer = (() => {
+      let queue = [], qi = 0, idx = 0, card = null, paused = false, sheetOpen = false;
+      const box = $('stViewer');
+      const isOpen = () => !box.classList.contains('hidden');
+      const code = () => queue[qi];
+      const items = () => ofCode(code());
+
+      function open(q, start) {
+        queue = q.filter((c) => ofCode(c).length);
+        qi = Math.max(0, queue.indexOf(q[start]));
+        if (!queue.length) return;
+        box.classList.remove('hidden', 'closing');
+        box.classList.add('opening');
+        setTimeout(() => box.classList.remove('opening'), 250);
+        paused = false; box.classList.remove('paused');
+        showPerson(null);
+      }
+      function close() {
+        if (!isOpen()) return;
+        closeSheet();
+        box.classList.add('closing');
+        setTimeout(() => { box.classList.add('hidden'); box.classList.remove('closing'); $('stCards').replaceChildren(); card = null; }, 190);
+        scheduleRender();
+      }
+      // Neue Person: Karte bauen, mit Slide-Animation einblenden
+      function showPerson(dir) {
+        const list = items();
+        if (!list.length) { nextPerson(); return; }
+        const own = code() === me.code;
+        const firstNew = list.findIndex((s) => !s.seen);
+        if (dir === 'prev') idx = list.length - 1;
+        else idx = own || firstNew < 0 ? 0 : firstNew;
+        const old = card;
+        card = buildCard();
+        if (old && dir) {
+          old.classList.add(dir === 'next' ? 'out-next' : 'out-prev');
+          card.classList.add(dir === 'next' ? 'in-next' : 'in-prev');
+          setTimeout(() => old.remove(), 330);
+        } else if (old) old.remove();
+        $('stCards').appendChild(card);
+        renderBottom();
+        showItem();
+      }
+      function buildCard() {
+        const c = code(), p = c === me.code ? me : contacts[c] || {};
+        const k = el('div', 'st-card');
+        const bars = el('div', 'st-bars');
+        items().forEach(() => { const b = el('div', 'st-bar'); b.appendChild(document.createElement('i')); bars.appendChild(b); });
+        const head = el('div', 'st-head');
+        head.appendChild(avatarEl(p.name, p.avatar, c));
+        const who = el('div', 'st-who');
+        who.appendChild(el('b', '', c === me.code ? 'Mein Status' : nameOf(c)));
+        who.appendChild(el('span', 'st-time', ''));
+        head.appendChild(who);
+        if (c === me.code) {
+          const del = el('button', 'st-btn st-del');
+          del.title = 'Diesen Status löschen';
+          del.innerHTML = '<svg><use href="#i-trash"/></svg>';
+          del.onclick = (e) => { e.stopPropagation(); deleteCurrent(); };
+          head.appendChild(del);
+        }
+        const x = el('button', 'st-btn');
+        x.title = 'Schließen (Esc)';
+        x.innerHTML = '<svg><use href="#i-x"/></svg>';
+        x.onclick = (e) => { e.stopPropagation(); close(); };
+        head.appendChild(x);
+        const wrap = el('div', 'st-img-wrap');
+        const img = document.createElement('img'); img.alt = '';
+        wrap.appendChild(img);
+        const zones = el('div', 'st-zones');
+        const left = el('div'), right = el('div');
+        zones.append(left, right);
+        wrap.appendChild(zones);
+        const text = el('div', 'st-text');
+        wrap.appendChild(text);
+        k.append(bars, head, wrap);
+        k._ = { bars, img, text, time: who.lastChild, left, right, zones };
+        bindPointer(zones, left);
+        return k;
+      }
+      // Tippen links/rechts = zurück/weiter, gedrückt halten = Pause, Wischen = Person wechseln / schließen
+      function bindPointer(zones, left) {
+        let start = null;
+        zones.onpointerdown = (e) => { start = { x: e.clientX, y: e.clientY, t: Date.now(), left: e.target === left }; setPaused(true); };
+        zones.onpointerup = (e) => {
+          if (!start) return;
+          const dx = e.clientX - start.x, dy = e.clientY - start.y, held = Date.now() - start.t;
+          const s = start; start = null;
+          setPaused(false);
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) { if (dx < 0) nextPerson(); else prevPerson(); return; }
+          if (dy > 90 && Math.abs(dy) > Math.abs(dx)) { close(); return; }
+          if (held < 300) { if (s.left) prev(); else next(); }
+        };
+        zones.onpointercancel = () => { start = null; setPaused(false); };
+        zones.onpointerleave = () => { if (start) { start = null; setPaused(false); } };
+      }
+      function setPaused(p) {
+        paused = p || sheetOpen;
+        box.classList.toggle('paused', paused);
+      }
+      function showItem() {
+        const list = items();
+        if (!card || !list.length) return;
+        idx = Math.max(0, Math.min(idx, list.length - 1));
+        const s = list[idx], c = code();
+        const { bars, img, text, time } = card._;
+        // Balken: davor voll, aktueller läuft, danach leer
+        [...bars.children].forEach((b, i) => {
+          b.classList.toggle('done', i < idx);
+          b.classList.remove('run');
+          const bar = b.firstChild;
+          bar.style.animation = 'none';
+          bar.onanimationend = null;
+          if (i === idx) {
+            void bar.offsetWidth; // Animation neu starten
+            bar.style.animation = '';
+            bar.style.animationDuration = SHOW_MS + 'ms';
+            bar.onanimationend = () => { if (isOpen() && card && card._.bars === bars) next(); };
+          }
+        });
+        bars.children[idx].classList.add('run');
+        // Bild erst laden, dann starten
+        setPaused(true);
+        const startNow = () => { if (card && card._.img === img) setPaused(false); };
+        img.onload = startNow;
+        img.onerror = startNow;
+        const k = mediaKey(mkey(c), s.id);
+        // gleiches Bild wie eben -> es kommt kein neues load-Ereignis
+        const setSrc = (d) => { if (img.getAttribute('src') === d && img.complete) startNow(); else img.src = d; };
+        if (mediaCache.has(k)) setSrc(mediaCache.get(k));
+        else getMedia(mkey(c), s.id).then((d) => { if (d && card && card._.img === img) setSrc(d); else startNow(); });
+        text.textContent = s.caption || '';
+        text.style.display = s.caption ? '' : 'none';
+        time.textContent = ago(s.ts);
+        // Gesehen merken und dem Besitzer melden
+        if (c !== me.code && !s.seen) { s.seen = true; save(); }
+        if (c !== me.code && !s.seenSent) { s.seenSent = true; save(); sendData(c, { type: 'sseen', id: s.id }); }
+        renderBottom();
+      }
+      function next() {
+        if (idx < items().length - 1) { idx++; showItem(); } else nextPerson();
+      }
+      function prev() {
+        if (idx > 0) { idx--; showItem(); } else if (qi > 0) prevPerson(); else showItem();
+      }
+      function nextPerson() {
+        if (qi < queue.length - 1) { qi++; showPerson('next'); } else close();
+      }
+      function prevPerson() {
+        if (qi > 0) { qi--; showPerson('prev'); } else showItem();
+      }
+      function deleteCurrent() {
+        const s = items()[idx];
+        if (!s) return;
+        removeMine(s.id);
+        if (!items().length) { close(); return; }
+        const old = card;
+        card = buildCard();
+        old.replaceWith(card);
+        showItem();
+      }
+      // Unten: Reaktionen (bei anderen) oder „Angesehen“ (eigener Status)
+      function renderBottom() {
+        const own = code() === me.code;
+        const s = items()[idx];
+        $('stReact').classList.toggle('hidden', own);
+        $('stOwn').classList.toggle('hidden', !own);
+        if (own) {
+          const views = (s && s.views) || [];
+          const reacts = Object.values((s && s.reactions) || {});
+          $('stViewsText').textContent = views.length + (reacts.length ? '  ' + reacts.slice(0, 5).join('') : '');
+          if (sheetOpen) renderSheet();
+          return;
+        }
+        const r = $('stReact');
+        r.replaceChildren();
+        REACTIONS.forEach((e) => {
+          const b = el('button', s && s.myReaction === e ? 'picked' : '', e);
+          b.type = 'button';
+          b.title = 'Mit ' + e + ' reagieren';
+          b.onclick = () => react(e);
+          r.appendChild(b);
+        });
+      }
+      function react(e) {
+        const s = items()[idx], c = code();
+        if (!s || c === me.code) return;
+        s.myReaction = e; save();
+        sendData(c, { type: 'sreact', id: s.id, emoji: e });
+        const burst = el('div', 'st-burst', e);
+        box.appendChild(burst);
+        setTimeout(() => burst.remove(), 950);
+        renderBottom();
+      }
+      function renderSheet() {
+        const s = items()[idx];
+        const ul = $('stSheetList');
+        ul.replaceChildren();
+        const views = (s && s.views) || [];
+        $('stSheetTitle').textContent = views.length ? `Angesehen von ${views.length}` : 'Noch nicht angesehen';
+        views.slice().reverse().forEach((v) => {
+          const li = el('li');
+          li.appendChild(avatarEl(nameOf(v), contacts[v] && contacts[v].avatar, v));
+          li.appendChild(el('span', 'fname', nameOf(v)));
+          const r = s.reactions && s.reactions[v];
+          li.appendChild(r ? el('span', 'emo', r) : el('span', 'muted', ''));
+          ul.appendChild(li);
+        });
+      }
+      function openSheet() { sheetOpen = true; $('stSheet').classList.remove('hidden'); renderSheet(); setPaused(true); }
+      function closeSheet() { sheetOpen = false; $('stSheet').classList.add('hidden'); setPaused(false); }
+      $('stViews').onclick = openSheet;
+      $('stSheetClose').onclick = closeSheet;
+
+      // Tastatur: Pfeile, Leertaste = Pause, Esc = schließen
+      document.addEventListener('keydown', (e) => {
+        if (!isOpen()) return;
+        if (e.key === 'Escape') { e.stopImmediatePropagation(); if (sheetOpen) closeSheet(); else close(); }
+        else if (e.key === 'ArrowRight') next();
+        else if (e.key === 'ArrowLeft') prev();
+        else if (e.key === 'ArrowDown') nextPerson();
+        else if (e.key === 'ArrowUp') prevPerson();
+        else if (e.key === ' ') { e.preventDefault(); setPaused(!paused); }
+      }, true);
+
+      // Etwas hat sich geändert (gelöscht, neue Reaktion …)
+      function changed(c) {
+        if (!isOpen() || c !== code()) return;
+        if (!items().length) { nextPerson(); return; }
+        if (card && card._.bars.children.length !== items().length) {
+          const old = card; card = buildCard(); old.replaceWith(card); showItem();
+        } else renderBottom();
+      }
+      return { open, close, changed, isOpen };
+    })();
+
+    return { prune, post, handle, syncTo, renderList, unseenCount, pick, viewer, addFiles, mine };
+  })();
+
   // ================= Briefkasten-Server (Offline-Zustellung) =================
   // Ist der Empfänger offline, landet die Nachricht Ende-zu-Ende-verschlüsselt in seinem
   // Briefkasten auf dem Server. Der Server kann sie weder lesen noch fälschen.
@@ -1625,7 +2178,8 @@
   //  - Pro Nachricht: Einmal-Schlüssel (ECDH) -> HKDF -> AES-256-GCM, Absender signiert alles
   const relay = (() => {
     const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
-    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello']);
+    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen']);
+    const SILENT_TYPES = new Set(['ack', 'status', 'sdel', 'sseen']); // kein Push aufs Handy
     const te = new TextEncoder(), td = new TextDecoder();
     let ident = null;        // { signPriv, encPriv, signPub, encPub }
     let ready = false;
@@ -1725,7 +2279,7 @@
         const ts = Date.now();
         const res = await fetch(`${url()}/v1/send/${code}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream', 'X-From': me.code, 'X-Ts': String(ts), 'X-Sig': await sign(`send|${me.code}|${code}|${ts}`) },
+          headers: { 'Content-Type': 'application/octet-stream', 'X-From': me.code, 'X-Ts': String(ts), 'X-Sig': await sign(`send|${me.code}|${code}|${ts}`), ...(SILENT_TYPES.has(data.type) ? { 'X-Silent': '1' } : {}) },
           body,
         });
         if (res.status === 404) { known[code] = false; return false; }
@@ -1842,6 +2396,8 @@
   async function boot() {
     await loadData();
     show('viewList');
+    stories.prune();
+    setInterval(() => stories.prune(), 5 * 60 * 1000);
     checkAchievements();
     render();
     startPeer();

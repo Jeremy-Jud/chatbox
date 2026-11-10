@@ -263,3 +263,142 @@ button.primary:disabled { opacity: .35; cursor: default; }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ================= Leiste unten (Status · Chats · Du) ================= */
+.tabbar {
+  flex-shrink: 0; display: flex; justify-content: space-around; align-items: center;
+  padding: 6px 10px 8px; border-top: 1px solid var(--line); background: var(--bg);
+}
+.tab {
+  flex: 1; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 4px 0 3px; border-radius: 14px; color: var(--muted); font-size: 11px; font-weight: 500;
+  transition: background .15s, color .15s;
+}
+.tab:hover { color: var(--fg); }
+.tab.active { color: var(--fg); background: var(--soft); font-weight: 600; }
+.tab-ic { position: relative; width: 26px; height: 26px; display: grid; place-items: center; }
+.tab-ic svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tab.active .tab-ic svg { stroke-width: 2; }
+.tab-ic .avatar { width: 24px; height: 24px; font-size: 10px; }
+.tab.active .tab-ic .avatar { box-shadow: 0 0 0 1.5px var(--fg); }
+.tab-dot { position: absolute; top: 0; right: -1px; width: 8px; height: 8px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 2px var(--bg); z-index: 3; }
+#updateDot.tab-dot { background: var(--accent); }
+.tab-badge {
+  position: absolute; top: -3px; left: 15px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--accent); color: var(--on-accent); font-size: 9.5px; font-weight: 700; display: grid; place-items: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* ================= Status-Liste ================= */
+:root { --st-seen: color-mix(in srgb, var(--muted) 55%, transparent); }
+.st-list { padding-top: 4px; }
+.st-list .listhead { margin: 12px 10px 4px; cursor: default; padding: 0; display: block; }
+.st-list .listhead:hover { background: none; }
+.st-ring { position: relative; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+.st-ring .avatar { width: 44px; height: 44px; box-shadow: 0 0 0 2px var(--bg); }
+.st-ring.none .avatar { box-shadow: none; }
+.st-add {
+  position: absolute; right: -1px; bottom: -1px; width: 20px; height: 20px; border-radius: 50%; z-index: 3;
+  background: var(--accent); color: #fff; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--bg);
+}
+.st-add svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
+.st-empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 30px 24px !important; cursor: default !important; line-height: 1.5; display: block !important; }
+.st-empty:hover { background: none !important; }
+
+/* ================= Status: Vollbild (Erstellen + Ansehen) ================= */
+.st-overlay {
+  position: fixed; inset: 0; z-index: 40; background: #000; color: #fff;
+  display: flex; flex-direction: column; user-select: none;
+}
+.st-btn {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: rgba(255, 255, 255, .08); flex-shrink: 0;
+}
+.st-btn:hover { background: rgba(255, 255, 255, .18); }
+.st-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.st-btn.small { width: 28px; height: 28px; }
+
+/* Erstellen */
+.st-top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.st-top-title { flex: 1; font-weight: 600; text-align: center; }
+.st-stage { flex: 1; min-height: 0; position: relative; margin: 0 12px; }
+.st-stage img { position: absolute; inset: 0; margin: auto; max-width: 100%; max-height: 100%; border-radius: 10px; }
+.st-thumbs { display: flex; gap: 6px; padding: 10px 12px 0; overflow-x: auto; }
+.st-thumb {
+  position: relative; width: 48px; height: 48px; border-radius: 8px; overflow: hidden; flex-shrink: 0;
+  opacity: .55; outline: 2px solid transparent; outline-offset: -2px; cursor: pointer; background: #222;
+}
+.st-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-thumb.active { opacity: 1; outline-color: #fff; }
+.st-thumb.more { display: grid; place-items: center; opacity: 1; background: rgba(255, 255, 255, .1); color: #fff; }
+.st-thumb.more svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.st-caption-row { display: flex; gap: 8px; align-items: center; padding: 10px 12px 14px; }
+.st-caption-row input { background: rgba(255, 255, 255, .1); color: #fff; border-radius: 20px; padding: 10px 14px; }
+.st-caption-row input::placeholder { color: rgba(255, 255, 255, .55); }
+.st-caption-row input:focus { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .5) inset; }
+.st-share { width: 42px; height: 42px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+.st-share svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transform: rotate(90deg); }
+
+/* Ansehen: jede Person ist eine Karte, die beim Wechseln seitlich reinrutscht */
+.st-cards { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.st-card { position: absolute; inset: 0; display: flex; flex-direction: column; background: #000; }
+.st-card.in-next { animation: stInNext .32s cubic-bezier(.2, .8, .2, 1); }
+.st-card.in-prev { animation: stInPrev .32s cubic-bezier(.2, .8, .2, 1); }
+.st-card.out-next { animation: stOutNext .32s cubic-bezier(.2, .8, .2, 1) forwards; }
+.st-card.out-prev { animation: stOutPrev .32s cubic-bezier(.2, .8, .2, 1) forwards; }
+@keyframes stInNext { from { transform: translateX(100%) scale(.96); } }
+@keyframes stInPrev { from { transform: translateX(-100%) scale(.96); } }
+@keyframes stOutNext { to { transform: translateX(-35%) scale(.92); opacity: .3; } }
+@keyframes stOutPrev { to { transform: translateX(35%) scale(.92); opacity: .3; } }
+.st-overlay.closing { animation: stClose .2s ease-in forwards; }
+.st-overlay.opening { animation: stOpen .22s ease-out; }
+@keyframes stOpen { from { opacity: 0; transform: scale(.94); } }
+@keyframes stClose { to { opacity: 0; transform: scale(.94); } }
+
+.st-bars { display: flex; gap: 3px; padding: 10px 10px 0; position: relative; z-index: 2; }
+.st-bar { flex: 1; height: 2.5px; border-radius: 2px; background: rgba(255, 255, 255, .3); overflow: hidden; }
+.st-bar i { display: block; height: 100%; width: 0; background: #fff; }
+.st-bar.done i { width: 100%; }
+.st-bar.run i { animation: stFill linear forwards; }
+.st-viewer.paused .st-bar.run i { animation-play-state: paused; }
+@keyframes stFill { to { width: 100%; } }
+.st-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 8px; position: relative; z-index: 2; }
+.st-head .avatar { width: 34px; height: 34px; font-size: 13px; }
+.st-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.st-who b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-who span { font-size: 11.5px; color: rgba(255, 255, 255, .7); }
+.st-img-wrap { flex: 1; min-height: 0; position: relative; }
+.st-img-wrap img { position: absolute; inset: 0; margin: auto; max-width: 100%; max-height: 100%; }
+.st-zones { position: absolute; inset: 0; display: flex; z-index: 1; }
+.st-zones div { flex: 1; cursor: pointer; }
+.st-zones div:first-child { flex: .5; }
+.st-text {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
+  padding: 40px 18px 14px; text-align: center; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .65));
+}
+.st-react { display: flex; justify-content: center; gap: 4px; padding: 10px 10px 14px; flex-wrap: wrap; }
+.st-react button {
+  width: 40px; height: 40px; border-radius: 50%; font-size: 22px; line-height: 1;
+  display: grid; place-items: center; transition: transform .12s, background .12s;
+}
+.st-react button:hover { background: rgba(255, 255, 255, .12); transform: scale(1.12); }
+.st-react button.picked { background: rgba(255, 255, 255, .22); }
+.st-own { display: flex; justify-content: center; padding: 10px 10px 14px; }
+.st-views { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 20px; background: rgba(255, 255, 255, .1); color: #fff; font-size: 13px; }
+.st-views svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.st-burst { position: absolute; left: 50%; bottom: 70px; font-size: 64px; z-index: 5; pointer-events: none; animation: stBurst .9s ease-out forwards; }
+@keyframes stBurst { 0% { transform: translate(-50%, 20px) scale(.4); opacity: 0; } 25% { opacity: 1; transform: translate(-50%, 0) scale(1.15); } 100% { transform: translate(-50%, -140px) scale(1); opacity: 0; } }
+.st-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; max-height: 60%;
+  background: #18181b; border-radius: 16px 16px 0 0; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 8px;
+  animation: stSheet .2s ease-out;
+}
+@keyframes stSheet { from { transform: translateY(100%); } }
+.st-sheet-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
+.st-sheet-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.st-sheet-list li { display: flex; align-items: center; gap: 10px; padding: 6px 2px; }
+.st-sheet-list .avatar { width: 32px; height: 32px; font-size: 12px; }
+.st-sheet-list .fname { flex: 1; color: #fff; }
+.st-sheet-list .emo { font-size: 20px; }
+.st-sheet-list .muted { color: rgba(255, 255, 255, .55); }

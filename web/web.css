@@ -56,3 +56,10 @@ html.is-web input, html.is-web textarea { font-size: 16px; }
 html.is-web .viewer { inset: calc(48px + env(safe-area-inset-top)) 0 0; }
 html.is-web .setting:has(#webInfo) { padding-top: 6px; padding-bottom: 12px; }
 html.is-web #webInfo { line-height: 1.4; }
+
+/* Status-Vollbild: Notch und Home-Balken freilassen */
+html.is-web .st-overlay {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+html.is-web .tabbar { padding-bottom: 4px; }
+html.is-web .tab { font-size: 11.5px; }

@@ -65,9 +65,11 @@ Mit **Test senden** kommt nach 5 Sekunden ein echter Test-Push über den Server.
 | 👥 **Gruppenchats** | Gruppen erstellen, Freunde hinzufügen, umbenennen, verlassen. Mit Gruppenbild und Beschreibung |
 | 📷 **Bilder & GIFs** | Über 📎, mit Strg+V, per Drag & Drop oder aus dem Windows-Emoji-Feld (Win + .). GIFs bis 25 MB, Bilder werden automatisch verkleinert |
 | 🧹 **Chat leeren** | Verlauf eines Chats löschen und Speicher freigeben. Übersicht aller Chats nach Größe in den Einstellungen |
+| 🌅 **Status** | Wie bei WhatsApp: ein oder mehrere Bilder mit Beschreibung teilen, 24 Stunden sichtbar. Ansehen als Slides (tippen, wischen, gedrückt halten = Pause), Reaktionen mit Emojis, „Angesehen von“ für deine eigenen Status |
+| 🧭 **Leiste unten** | Status links, Chats in der Mitte, Einstellungen („Du“) rechts |
 | 📱 **Web-Version** | Für iPhone, iPad und Android, chattet direkt mit der Windows-App |
 | 😊 **Emojis** | Emoji-Auswahl mit Kategorien und „Zuletzt benutzt“. Nachrichten nur aus Emojis werden groß angezeigt |
-| 🏆 **Erfolge** | 23 Erfolge zum Freischalten, z. B. 25 Nachrichten, erstes GIF, Nachteule oder 7 Tage am Stück |
+| 🏆 **Erfolge** | 25 Erfolge zum Freischalten, z. B. 25 Nachrichten, erstes GIF, Nachteule oder 7 Tage am Stück |
 | 🖼️ **Profil** | Profilbild, Name und Status. Deine Freunde sehen dein Bild und deine Erfolge |
 | 🐱 **Profilrahmen** | 11 Rahmen fürs Profilbild: Katzenohren, Hasenohren, Teufelshörner, Heiligenschein, Krone, Partyhut, Kopfhörer, Blumenkranz, Herzen, Funkeln, Neon |
 | 🔔 **Benachrichtigungen** | Windows-Benachrichtigungen wie bei Teams/Discord mit Profilbild. Ein Klick öffnet den Chat. Roter Zähler am Taskleisten-Icon |

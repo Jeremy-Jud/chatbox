@@ -19,7 +19,7 @@ const SEND_LIMIT_PER_MIN = 120;           // pro Absender und Empfänger
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-From, X-Ts, X-Sig',
+  'Access-Control-Allow-Headers': 'Content-Type, X-From, X-Ts, X-Sig, X-Silent',
   'Access-Control-Max-Age': '86400',
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -163,7 +163,8 @@ export class Mailbox {
     for (let i = 0; i < chunks; i++) {
       this.sql.exec('INSERT INTO chunks (msg, idx, data) VALUES (?, ?, ?)', id, i, body.subarray(i * CHUNK, (i + 1) * CHUNK));
     }
-    this.state.waitUntil(this.notifyPush(from));
+    // Status-Updates u. Ä. ohne Push (der Absender markiert sie als still)
+    if (req.headers.get('X-Silent') !== '1') this.state.waitUntil(this.notifyPush(from));
     return json({ ok: true, id });
   }
 

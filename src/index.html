@@ -21,6 +21,11 @@
       <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
       <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="10" height="10" rx="2"/><path d="M5 15V7a2 2 0 0 1 2-2h8"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-status" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5M20.5 12a8.5 8.5 0 0 1-8.5 8.5M12 20.5A8.5 8.5 0 0 1 3.5 12" /><path d="M3.5 12A8.5 8.5 0 0 1 12 3.5" stroke-dasharray="2.2 2.6"/><circle cx="12" cy="12" r="3.6"/></symbol>
+      <symbol id="i-chats" viewBox="0 0 24 24"><path d="M4 11.5a7 6.2 0 0 1 14 0 7 6.2 0 0 1-9.6 5.8L4.5 19l1.2-3.4A6 6 0 0 1 4 11.5z"/><path d="M20 9.8a5.6 5.6 0 0 1 .6 6.6l.9 2.8-3-1.1"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
     </defs>
   </svg>
 
@@ -28,7 +33,6 @@
     <button id="backBtn" class="ic hidden" title="Zurück"><svg><use href="#i-back"/></svg></button>
     <div class="title"><img src="assets/logo.png" class="tb-logo" alt=""><span id="titleText">WhatsUp</span><span class="dot" id="netDot" title="Netzwerk"></span></div>
     <button id="trophyBtn" class="ic" title="Erfolge"><svg><use href="#i-trophy"/></svg></button>
-    <button id="settingsBtn" class="ic" title="Einstellungen"><svg><use href="#i-gear"/></svg><span id="updateDot" class="update-dot hidden"></span></button>
     <button id="pinBtn" class="ic desktop-only" title="Immer im Vordergrund"><svg><use href="#i-pin"/></svg></button>
     <button id="minBtn" class="ic desktop-only" title="Minimieren"><svg><use href="#i-min"/></svg></button>
     <button id="closeBtn" class="ic close desktop-only" title="Schließen"><svg><use href="#i-x"/></svg></button>
@@ -164,6 +168,55 @@
     <ul id="achList" class="ach-list"></ul>
   </section>
 
+  <!-- Status -->
+  <section id="viewStatus" class="view hidden">
+    <ul id="statusList" class="list st-list"></ul>
+  </section>
+
+  <!-- Leiste unten: Status · Chats · Du -->
+  <nav id="tabbar" class="tabbar hidden">
+    <button class="tab" data-tab="viewStatus" id="tabStatus">
+      <span class="tab-ic"><svg><use href="#i-status"/></svg><span id="statusDot" class="tab-dot hidden"></span></span>
+      <span class="tab-label">Status</span>
+    </button>
+    <button class="tab" data-tab="viewList" id="tabChats">
+      <span class="tab-ic"><svg><use href="#i-chats"/></svg><span id="chatsBadge" class="tab-badge hidden"></span></span>
+      <span class="tab-label">Chats</span>
+    </button>
+    <button class="tab" data-tab="viewSettings" id="tabMe">
+      <span class="tab-ic"><span id="tabMeAvatar"></span><span id="updateDot" class="tab-dot hidden"></span></span>
+      <span class="tab-label">Du</span>
+    </button>
+  </nav>
+
+  <!-- Status erstellen -->
+  <div id="stCompose" class="st-overlay st-compose hidden">
+    <div class="st-top">
+      <button id="stComposeClose" class="st-btn" title="Abbrechen"><svg><use href="#i-x"/></svg></button>
+      <span class="st-top-title">Neuer Status</span>
+      <button id="stComposeDel" class="st-btn" title="Bild entfernen"><svg><use href="#i-trash"/></svg></button>
+    </div>
+    <div class="st-stage"><img id="stComposeImg" alt=""></div>
+    <div id="stThumbs" class="st-thumbs"></div>
+    <form id="stComposeForm" class="st-caption-row">
+      <input id="stCaption" maxlength="300" placeholder="Beschreibung hinzufügen…" autocomplete="off">
+      <button class="st-share" type="submit" title="Teilen"><svg><use href="#i-send"/></svg></button>
+    </form>
+  </div>
+
+  <!-- Status ansehen -->
+  <div id="stViewer" class="st-overlay st-viewer hidden">
+    <div id="stCards" class="st-cards"></div>
+    <div id="stReact" class="st-react"></div>
+    <div id="stOwn" class="st-own hidden">
+      <button id="stViews" class="st-views"><svg><use href="#i-eye"/></svg><span id="stViewsText">0</span></button>
+    </div>
+    <div id="stSheet" class="st-sheet hidden">
+      <div class="st-sheet-head"><span id="stSheetTitle">Angesehen von</span><button id="stSheetClose" class="st-btn small" title="Schließen"><svg><use href="#i-x"/></svg></button></div>
+      <ul id="stSheetList" class="st-sheet-list"></ul>
+    </div>
+  </div>
+
   <div id="modal" class="modal hidden"><div id="modalBox" class="modal-box"></div></div>
   <div id="viewer" class="viewer hidden">
     <img id="viewerImg" alt="">
@@ -176,6 +229,7 @@
   <input type="file" id="fileInput" accept="image/*" hidden>
   <input type="file" id="avatarInput" accept="image/*" hidden>
   <input type="file" id="groupAvatarInput" accept="image/*" hidden>
+  <input type="file" id="statusInput" accept="image/*" multiple hidden>
 
   <script src="../node_modules/peerjs/dist/peerjs.min.js"></script>
   <script src="emojis.js"></script>

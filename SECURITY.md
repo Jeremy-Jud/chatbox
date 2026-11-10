@@ -31,6 +31,7 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 - **Briefkasten-Server (Offline-Zustellung, `relay/`):** Jedes Gerät erzeugt ECDSA- und ECDH-Schlüssel (P-256), die privaten Schlüssel sind nicht exportierbar. Nachrichten werden mit einem Einmal-ECDH-Schlüssel, HKDF und AES-256-GCM verschlüsselt und vom Absender per ECDSA signiert. Der Empfänger prüft die Signatur, der Server kann Inhalte weder lesen noch fälschen.
 - Beim Server ist zu jedem Code der Schlüssel hinterlegt (beim ersten Kontakt, danach unveränderbar). Senden, Abholen, Löschen und Push-Anmeldung erfordern eine frische Signatur (max. 10 Minuten alt). Pro Absender gilt ein Mengenlimit, pro Briefkasten eine Größenbegrenzung.
 - Web-Push (RFC 8291/8292) enthält nur den Absender-Code, keinen Nachrichteninhalt.
+- Status-Updates werden genauso Ende-zu-Ende-verschlüsselt verteilt wie Nachrichten. Status, Löschungen, Aufrufe und Bestätigungen werden ohne Push zugestellt; der Server sieht dabei nur, dass die Zustellung still sein soll.
 - Die Oberfläche läuft mit `contextIsolation`, `sandbox` und ohne `nodeIntegration`. Dazu kommen eine strenge Content Security Policy, gesperrte Navigation und ein Berechtigungsfilter.
 - Alle empfangenen Texte werden als reiner Text angezeigt (kein HTML), was XSS verhindert.
 
