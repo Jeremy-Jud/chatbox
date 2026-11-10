@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:">
   <title>Chatbox</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="titlebar">
     <button id="backBtn" class="tb-btn hidden" title="Zurück">‹</button>
-    <div class="title"><span class="dot" id="netDot"></span><span id="titleText">Chatbox</span></div>
+    <div class="title"><span class="dot" id="netDot" title="Netzwerk"></span><span id="titleText">Chatbox</span></div>
     <div class="tb-actions">
+      <button id="trophyBtn" class="tb-btn" title="Erfolge">🏆</button>
       <button id="pinBtn" class="tb-btn" title="Immer im Vordergrund">📌</button>
       <button id="minBtn" class="tb-btn" title="Minimieren">–</button>
       <button id="closeBtn" class="tb-btn close" title="Schließen">✕</button>
@@ -29,34 +30,94 @@
     </div>
   </section>
 
-  <!-- Freundesliste -->
+  <!-- Chats -->
   <section id="viewList" class="view hidden">
-    <div class="mycode">
-      <div>
-        <div class="label">Dein Code</div>
-        <div class="code" id="myCode">------</div>
-      </div>
-      <button id="copyBtn" class="ghost">Kopieren</button>
+    <div class="mecard">
+      <button id="meCardBtn" class="mecard-main" title="Profil bearbeiten">
+        <span id="meAvatar"></span>
+        <span class="mecard-info">
+          <span class="fname" id="meName"></span>
+          <span class="label">Code: <span class="code-sm" id="myCode">------</span></span>
+        </span>
+      </button>
+      <button id="copyBtn" class="ghost small">Kopieren</button>
     </div>
     <form id="addForm" class="add">
       <input id="addInput" maxlength="6" placeholder="Code eines Freundes" autocomplete="off">
       <button class="primary" type="submit">Adden</button>
     </form>
     <div id="addStatus" class="status"></div>
-    <ul id="friendList" class="friends"></ul>
-    <div id="emptyList" class="empty">Noch keine Freunde.<br>Gib deinen Code weiter oder füge jemanden per Code hinzu.</div>
+    <div class="listhead">
+      <span>Chats</span>
+      <button id="newGroupBtn" class="ghost small">＋ Gruppe</button>
+    </div>
+    <ul id="chatList" class="friends"></ul>
+    <div id="emptyList" class="empty">Noch keine Chats.<br>Gib deinen Code weiter oder füge jemanden per Code hinzu.</div>
   </section>
 
   <!-- Chat -->
   <section id="viewChat" class="view hidden">
+    <button id="chatHead" class="chathead" title="Infos">
+      <span id="chatAvatar"></span>
+      <span class="fmeta">
+        <span class="fname" id="chatName"></span>
+        <span class="flast" id="chatSub"></span>
+      </span>
+      <span class="info-i">ⓘ</span>
+    </button>
     <div id="messages" class="messages"></div>
+    <div id="emojiPanel" class="emoji-panel hidden">
+      <div id="emojiTabs" class="emoji-tabs"></div>
+      <div id="emojiGrid" class="emoji-grid"></div>
+    </div>
     <form id="sendForm" class="composer">
-      <input id="msgInput" placeholder="Nachricht…" autocomplete="off" maxlength="2000">
-      <button class="primary send" type="submit">➤</button>
+      <button type="button" id="emojiBtn" class="icon-btn" title="Emojis">😊</button>
+      <button type="button" id="attachBtn" class="icon-btn" title="Bild oder GIF senden">📎</button>
+      <input id="msgInput" placeholder="Nachricht…" autocomplete="off" maxlength="4000">
+      <button class="primary send" type="submit" title="Senden">➤</button>
     </form>
+    <div id="dropHint" class="drop-hint hidden">📷 Bild hier ablegen</div>
   </section>
 
+  <!-- Profil -->
+  <section id="viewProfile" class="view hidden">
+    <div class="profile">
+      <span id="profAvatar"></span>
+      <div class="row">
+        <button id="avatarChange" class="ghost small">Bild wählen</button>
+        <button id="avatarRemove" class="ghost small">Entfernen</button>
+      </div>
+      <label>Name<input id="profName" maxlength="24" autocomplete="off"></label>
+      <label>Status<input id="profStatus" maxlength="80" placeholder="z. B. Bin am Zocken 🎮" autocomplete="off"></label>
+      <div class="profcode"><span class="label">Dein Code</span><span class="code" id="profCode"></span></div>
+      <button id="profSave" class="primary">Speichern</button>
+    </div>
+  </section>
+
+  <!-- Erfolge -->
+  <section id="viewAchievements" class="view hidden">
+    <div class="ach-summary">
+      <div><span id="achCount">0</span> von <span id="achTotal">0</span> Erfolgen</div>
+      <div class="bar"><div id="achBar"></div></div>
+    </div>
+    <ul id="achList" class="ach-list"></ul>
+  </section>
+
+  <div id="modal" class="modal hidden"><div id="modalBox" class="modal-box"></div></div>
+  <div id="viewer" class="viewer hidden">
+    <img id="viewerImg" alt="">
+    <div class="viewer-actions">
+      <a id="viewerSave" class="primary">Speichern</a>
+      <button id="viewerClose" class="ghost">Schließen</button>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <input type="file" id="fileInput" accept="image/*" hidden>
+  <input type="file" id="avatarInput" accept="image/*" hidden>
+
   <script src="../node_modules/peerjs/dist/peerjs.min.js"></script>
+  <script src="emojis.js"></script>
+  <script src="achievements.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

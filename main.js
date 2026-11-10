@@ -3,24 +3,33 @@ const path = require('path');
 
 let win;
 
+// Optional: --profile=name startet ein getrenntes Profil (z. B. zum Testen mit zwei Fenstern)
+const profileArg = process.argv.find((a) => a.startsWith('--profile='));
+if (profileArg) {
+  const name = profileArg.split('=')[1].replace(/[^a-z0-9_-]/gi, '');
+  if (name) app.setPath('userData', path.join(app.getPath('appData'), 'Chatbox-' + name));
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 360,
-    height: 540,
-    minWidth: 300,
-    minHeight: 400,
+    width: 380,
+    height: 600,
+    minWidth: 320,
+    minHeight: 460,
     frame: false,
     backgroundColor: '#14161c',
+    show: process.env.CHATBOX_HIDDEN !== '1', // für automatische Tests
     title: 'Chatbox',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false, // Chat soll auch im Hintergrund verbunden bleiben
       webSecurity: true,
       devTools: !app.isPackaged,
     },

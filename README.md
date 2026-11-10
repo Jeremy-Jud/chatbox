@@ -20,7 +20,7 @@ Ohne Konto, ohne Telefonnummer, ohne Server, der deine Nachrichten speichert.
 ## ⬇️ Download
 
 1. **[Chatbox.exe herunterladen](https://github.com/Jeremy-Jud/chatbox/releases/latest/download/Chatbox.exe)** (Windows 10/11, 64-Bit)
-2. Doppelklick auf `Chatbox.exe`. Es gibt keine Installation, die App startet direkt.
+2. Doppelklick auf `Chatbox.exe`. Es gibt keine Installation. Beim Start entpackt sich die App kurz, das kann etwa 15 Sekunden dauern.
 3. Namen eingeben und fertig. Du bekommst deinen eigenen **6-stelligen Code**.
 
 > **„Der Computer wurde durch Windows geschützt“?**
@@ -34,9 +34,14 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/cha
 
 | | |
 |---|---|
-| 🪟 **Mini-Fenster** | Kompaktes, rahmenloses Fenster (360 × 540), mit 📌 immer im Vordergrund |
+| 🪟 **Mini-Fenster** | Kompaktes, rahmenloses Fenster (380 × 600), mit 📌 immer im Vordergrund |
 | 🔑 **Freundescode** | Jeder bekommt einen eigenen Code wie `K7M2QX`. Code eingeben, schon seid ihr verbunden |
 | ⚡ **Echtzeit-Chat** | Nachrichten gehen direkt von PC zu PC (Peer-to-Peer) |
+| 👥 **Gruppenchats** | Gruppen erstellen, Freunde hinzufügen, umbenennen, verlassen |
+| 📷 **Bilder & GIFs** | Über 📎, mit Strg+V oder per Drag & Drop. Bilder werden automatisch verkleinert |
+| 😊 **Emojis** | Emoji-Auswahl mit Kategorien und „Zuletzt benutzt“. Nachrichten nur aus Emojis werden groß angezeigt |
+| 🏆 **Erfolge** | 23 Erfolge zum Freischalten, z. B. 25 Nachrichten, erstes GIF, Nachteule oder 7 Tage am Stück |
+| 🖼️ **Profil** | Profilbild, Name und Status. Deine Freunde sehen dein Bild und deine Erfolge |
 | 🟢 **Online-Status** | Du siehst, wer gerade online ist |
 | 🔔 **Benachrichtigungen** | Desktop-Meldung und blinkende Taskleiste bei neuen Nachrichten |
 | ✓✓ **Zustellstatus** | 🕓 wartet · ✓ gesendet · ✓✓ angekommen |
@@ -49,7 +54,11 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/cha
 2. **Freund adden:** Den Code deines Freundes ins Feld eingeben und auf **Adden** klicken.
    Dein Freund sieht dich danach automatisch auch in seiner Liste.
 3. **Chatten:** Auf den Namen klicken und lostippen. Mit `Enter` sendest du die Nachricht.
-4. **Entfernen:** Mit der Maus über einen Kontakt fahren und auf ✕ klicken.
+   Mit 😊 wählst du Emojis aus, mit 📎 schickst du Bilder oder GIFs. Du kannst Bilder auch einfügen (Strg+V) oder ins Fenster ziehen.
+4. **Gruppe:** Auf **＋ Gruppe** klicken, einen Namen eingeben und Freunde auswählen.
+5. **Profil:** Oben auf deinen Namen klicken, um Profilbild, Name und Status zu ändern.
+6. **Erfolge:** Über 🏆 oben rechts siehst du alle Erfolge und deinen Fortschritt.
+7. **Infos & Entfernen:** Im Chat oben auf den Namen klicken. Dort kannst du Freunde entfernen oder Gruppen verwalten.
 
 > ℹ️ Weil es keinen zentralen Server gibt, müssen **beide** Chatbox geöffnet haben, damit Nachrichten ankommen.
 
@@ -57,14 +66,17 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/cha
 
 - **Verschlüsselte Direktverbindung:** Nachrichten laufen über WebRTC-Datenkanäle, die immer mit DTLS verschlüsselt sind.
 - **Kein Nachrichtenserver:** Der öffentliche [PeerJS](https://peerjs.com)-Server hilft nur beim *Verbindungsaufbau* (Signalisierung). Deine Nachrichten bekommt er nie zu sehen.
-- **Keine Konten, kein Tracking:** Es gibt keine Telemetrie und keine Werbung. Es wird nur dein Anzeigename an deine Kontakte gesendet.
+- **Keine Konten, kein Tracking:** Es gibt keine Telemetrie und keine Werbung. Deine Kontakte bekommen nur Name, Status, Profilbild und die Anzahl deiner Erfolge.
+- **Geprüfte Daten:** Empfangene Bilder werden nur als PNG, JPEG, GIF oder WebP angenommen und in der Größe begrenzt. Texte werden nie als HTML dargestellt.
+- **Entfernen sperrt:** Wenn du einen Freund entfernst, kann dieser Code dich nicht mehr erreichen, bis du ihn selbst wieder addest.
 - **Gehärtete App:** Context Isolation, Sandbox, keine Node.js-Rechte im Fenster, eine strenge Content Security Policy, gesperrte Navigation, und alle Berechtigungen außer Benachrichtigungen werden abgelehnt.
 - **Geprüfte Abhängigkeiten:** Dependabot und Secret Scanning sind aktiv.
 
 Wichtig zu wissen:
 - Wer deinen Code kennt, kann dich adden. Gib ihn also nur Leuten, mit denen du chatten willst.
 - Bei einer direkten Verbindung sieht dein Chatpartner deine IP-Adresse. Das ist bei jeder Peer-to-Peer-Verbindung so.
-- Der Chatverlauf liegt unverschlüsselt in deinem Windows-Benutzerprofil (`%APPDATA%\Chatbox`).
+- Der Chatverlauf (inklusive Bilder) liegt unverschlüsselt in deinem Windows-Benutzerprofil (`%APPDATA%\Chatbox`).
+- In Gruppen verbinden sich alle Mitglieder direkt miteinander. Damit sehen auch Gruppenmitglieder, die du nicht geaddet hast, deine IP-Adresse.
 
 Sicherheitslücke gefunden? Bitte lies die [Sicherheitsrichtlinie](SECURITY.md).
 
@@ -101,14 +113,20 @@ chatbox/
 └── src/
     ├── index.html   # Oberfläche
     ├── style.css    # Design
-    └── app.js       # Chat-Logik (PeerJS, Freunde, Nachrichten)
+    ├── app.js       # Chat-Logik (PeerJS, Freunde, Gruppen, Bilder, Profil)
+    ├── emojis.js    # Emoji-Auswahl
+    └── achievements.js  # Liste der Erfolge
 ```
 
 ## 🗺️ Ideen für später
 
-- [ ] Gruppenchats
-- [ ] Bilder & Dateien senden
-- [ ] Emojis-Auswahl
+- [x] Gruppenchats
+- [x] Bilder & GIFs senden
+- [x] Emoji-Auswahl
+- [x] Erfolge & Profilbilder
+- [ ] GIF-Suche
+- [ ] Reaktionen auf Nachrichten
+- [ ] Dateien senden
 - [ ] Verschlüsselter lokaler Verlauf
 - [ ] macOS- und Linux-Version
 
