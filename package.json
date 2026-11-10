@@ -2,6 +2,12 @@
   "name": "chatbox",
   "version": "1.0.0",
   "description": "Kleine Desktop-Chat-App: Freunde per Code hinzufügen und direkt chatten.",
+  "author": "Jeremy-Jud",
+  "homepage": "https://github.com/Jeremy-Jud/chatbox",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jeremy-Jud/chatbox.git"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -9,11 +15,11 @@
   },
   "license": "MIT",
   "dependencies": {
-    "peerjs": "^1.5.4"
+    "peerjs": "^1.5.5"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "com.chatbox.app",
@@ -25,7 +31,14 @@
       "node_modules/peerjs/dist/peerjs.min.js"
     ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "Chatbox.exe"
     }
+  },
+  "allowScripts": {
+    "electron@45.2.3": true
   }
 }

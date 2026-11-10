@@ -20,15 +20,26 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      devTools: !app.isPackaged,
     },
   });
 
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
 
-  // Links im normalen Browser öffnen, nicht in der App
+  // Sicherheit: App darf nie auf fremde Seiten navigieren
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+
+  // Links im normalen Browser öffnen, nicht in der App (nur https)
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http')) shell.openExternal(url);
+    if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // Keine Rechte (Kamera, Mikrofon, Standort …) außer Benachrichtigungen
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => {
+    cb(permission === 'notifications' || permission === 'clipboard-sanitized-write');
   });
 }
 
