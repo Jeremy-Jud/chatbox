@@ -1,6 +1,6 @@
 {
   "name": "whatsup",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "WhatsUp: kleine Desktop-Chat-App. Freunde per Code hinzufügen und direkt chatten.",
   "author": "Jeremy-Jud",
   "homepage": "https://github.com/Jeremy-Jud/whatsup",
@@ -29,6 +29,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "popup-preload.js",
       "src/**/*",
       "node_modules/peerjs/dist/peerjs.min.js"
     ],

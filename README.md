@@ -71,7 +71,7 @@ Mit **Test senden** kommt nach 5 Sekunden ein echter Test-Push über den Server.
 | 🖼️ **Profil** | Profilbild, Name und Status. Deine Freunde sehen dein Bild und deine Erfolge |
 | 🐱 **Profilrahmen** | 11 Rahmen fürs Profilbild: Katzenohren, Hasenohren, Teufelshörner, Heiligenschein, Krone, Partyhut, Kopfhörer, Blumenkranz, Herzen, Funkeln, Neon |
 | 🔔 **Benachrichtigungen** | Windows-Benachrichtigungen wie bei Teams/Discord mit Profilbild. Ein Klick öffnet den Chat. Roter Zähler am Taskleisten-Icon |
-| ↩️ **Direkt antworten** | Wie bei Teams direkt in der Benachrichtigung antworten, ohne WhatsUp zu öffnen. Abschicken mit Enter |
+| ↩️ **Direkt antworten** | Wie bei Teams direkt in der Benachrichtigung antworten, ohne WhatsUp zu öffnen. `Enter` sendet, `Shift+Enter` macht eine neue Zeile (eigenes Benachrichtigungsfenster unten rechts, in den Einstellungen abschaltbar) |
 | 🖥️ **Hintergrund** | ✕ schließt nicht, WhatsUp läuft unten rechts im Infobereich weiter. Optional mit Windows starten |
 | ⚙️ **Einstellungen** | Profil, Hell/Dunkel, Benachrichtigungen, immer im Vordergrund |
 | 🔄 **Updates** | In der App nach Updates suchen und direkt installieren |

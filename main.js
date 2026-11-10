@@ -19,7 +19,7 @@ const TEST_MODE = process.env.CHATBOX_HIDDEN === '1' && !app.isPackaged;
 const IS_PORTABLE = !!process.env.PORTABLE_EXECUTABLE_FILE;
 const START_HIDDEN = process.argv.includes('--hidden');
 // Wird vom Fenster aus den Einstellungen gesetzt
-const prefs = { runInBackground: true, openAtLogin: false };
+const prefs = { runInBackground: true, openAtLogin: false, popupNotify: true, theme: 'system' };
 
 // Optional: --profile=name startet ein getrenntes Profil (z. B. zum Testen mit zwei Fenstern)
 const profileArg = process.argv.find((a) => a.startsWith('--profile='));
@@ -78,6 +78,7 @@ function createWindow() {
     win.webContents.send('win:hidden');
   });
   win.on('focus', () => win.flashFrame(false));
+  win.on('closed', () => { if (popup && !popup.isDestroyed()) popup.destroy(); });
 
   // Sicherheit: App darf nie auf fremde Seiten navigieren
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -222,12 +223,92 @@ function replyToastXml({ id, chatId, title, body, iconPath, placeholder, silent 
 </toast>`;
 }
 
+// ---------- Eigenes Benachrichtigungsfenster (unten rechts) ----------
+// Windows-Benachrichtigungen erlauben nicht, Enter/Shift+Enter selbst festzulegen.
+// Deshalb zeigt WhatsUp standardmäßig ein eigenes kleines Fenster wie das alte Teams.
+const POPUP_W = 380;
+let popup = null;
+let popupReady = false;
+let popupQueue = [];
+
+function placePopup(h) {
+  if (!popup || popup.isDestroyed()) return;
+  const { screen } = require('electron');
+  const wa = screen.getPrimaryDisplay().workArea;
+  const height = Math.max(60, Math.min(Math.round(h), wa.height - 20));
+  popup.setBounds({ x: wa.x + wa.width - POPUP_W - 6, y: wa.y + wa.height - height - 6, width: POPUP_W, height });
+}
+
+function ensurePopup() {
+  if (popup && !popup.isDestroyed()) return popup;
+  popupReady = false;
+  popup = new BrowserWindow({
+    width: POPUP_W, height: 120,
+    frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+    resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false,
+    skipTaskbar: true, alwaysOnTop: true, show: false,
+    ...(TEST_MODE ? { opacity: 0 } : {}),
+    title: 'WhatsUp',
+    webPreferences: {
+      preload: path.join(__dirname, 'popup-preload.js'),
+      contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true,
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+      devTools: !app.isPackaged,
+    },
+  });
+  popup.setAlwaysOnTop(true, 'pop-up-menu');
+  if (TEST_MODE) popup.setIgnoreMouseEvents(true);
+  popup.webContents.on('will-navigate', (e) => e.preventDefault());
+  popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  popup.webContents.session.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
+  popup.webContents.once('did-finish-load', () => {
+    popupReady = true;
+    const q = popupQueue; popupQueue = [];
+    q.forEach((n) => popup.webContents.send('popup:show', n));
+  });
+  popup.on('closed', () => { popup = null; popupReady = false; });
+  popup.loadFile(path.join(__dirname, 'src', 'popup.html'));
+  return popup;
+}
+
+function showPopup(n) {
+  ensurePopup();
+  if (popupReady) popup.webContents.send('popup:show', n);
+  else popupQueue.push(n);
+}
+
+const fromPopup = (e) => popup && !popup.isDestroyed() && e.sender === popup.webContents;
+ipcMain.on('popup:size', (e, h) => {
+  if (!fromPopup(e)) return;
+  if (!h) { popup.hide(); return; }
+  placePopup(h);
+  // nicht den Fokus klauen (z. B. beim Tippen oder Spielen)
+  if (!popup.isVisible()) popup.showInactive();
+});
+ipcMain.on('popup:reply', (e, id, chatId, text) => {
+  if (!fromPopup(e)) return;
+  deliverReply('p-' + String(id).slice(0, 64), chatId, text);
+});
+ipcMain.on('popup:open', (e, chatId) => {
+  if (!fromPopup(e)) return;
+  openFromNotification(CHAT_ID_RE.test(chatId) ? chatId : null);
+});
+ipcMain.on('popup:focus', (e) => { if (fromPopup(e) && !TEST_MODE) popup.focus(); });
+
 ipcMain.on('notify', (_e, n) => {
-  if (!Notification.isSupported() || !n || typeof n !== 'object') return;
+  if (!n || typeof n !== 'object') return;
   const chatId = CHAT_ID_RE.test(n.chatId || '') ? n.chatId : null;
   const title = String(n.title || 'WhatsUp').slice(0, 80);
   const body = String(n.body || '').slice(0, 200);
   const placeholder = String(n.replyPlaceholder || 'Antworten…').slice(0, 60);
+  if (prefs.popupNotify) {
+    const icon = typeof n.icon === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(n.icon) && n.icon.length < 2e6 ? n.icon : null;
+    showPopup({ id: require('crypto').randomUUID(), chatId, title, body, icon, placeholder, silent: !!n.silent, theme: prefs.theme });
+    if (win && !win.isFocused()) win.flashFrame(true);
+    return;
+  }
+  if (!Notification.isSupported()) return;
   let icon = nativeImage.createFromPath(ICON_PATH);
   if (typeof n.icon === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(n.icon)) {
     const av = nativeImage.createFromDataURL(n.icon);
@@ -279,6 +360,8 @@ ipcMain.on('prefs', (_e, p) => {
   if (!p || typeof p !== 'object') return;
   prefs.runInBackground = p.runInBackground !== false;
   prefs.openAtLogin = !!p.openAtLogin;
+  prefs.popupNotify = p.popupNotify !== false;
+  prefs.theme = ['light', 'dark'].includes(p.theme) ? p.theme : 'system';
   if (app.isPackaged && !IS_PORTABLE) {
     app.setLoginItemSettings({ openAtLogin: prefs.openAtLogin, args: ['--hidden'] });
   }

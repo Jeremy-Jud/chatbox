@@ -77,7 +77,7 @@
   let recentEmojis = store.load('recentEmojis', []);
   const settings = Object.assign({
     theme: 'system', notify: true, sound: true, preview: true, autoUpdate: true,
-    runInBackground: true, openAtLogin: false, bgHintShown: false, relay: true,
+    runInBackground: true, openAtLogin: false, bgHintShown: false, relay: true, popupNotify: true,
   }, store.load('settings', {}));
   const saveSettings = () => store.save('settings', settings);
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
@@ -780,7 +780,7 @@
     settings.bgHintShown = true; saveSettings();
     window.chatboxWindow.notify({ title: 'WhatsUp läuft im Hintergrund weiter', body: 'So verpasst du keine Nachrichten. Zum Öffnen oder Beenden klicke auf das WhatsUp-Symbol unten rechts in der Taskleiste.', silent: true });
   });
-  const sendPrefs = () => window.chatboxWindow.setPrefs({ runInBackground: settings.runInBackground, openAtLogin: settings.openAtLogin });
+  const sendPrefs = () => window.chatboxWindow.setPrefs({ runInBackground: settings.runInBackground, openAtLogin: settings.openAtLogin, popupNotify: settings.popupNotify, theme: settings.theme });
 
   const toastQueue = [];
   let toastBusy = false;
@@ -1261,6 +1261,7 @@
     $('profCode').textContent = me.code;
     $('setNotify').checked = settings.notify;
     $('setSound').checked = settings.sound;
+    $('setPopup').checked = settings.popupNotify;
     $('setPreview').checked = settings.preview;
     $('setBackground').checked = settings.runInBackground;
     $('setLogin').checked = settings.openAtLogin;
@@ -1380,17 +1381,18 @@
     $('themeSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.theme === settings.theme));
   }
   $('themeSeg').querySelectorAll('button').forEach((b) => {
-    b.onclick = () => { settings.theme = b.dataset.theme; saveSettings(); applyTheme(); renderTheme(); };
+    b.onclick = () => { settings.theme = b.dataset.theme; saveSettings(); applyTheme(); renderTheme(); sendPrefs(); };
   });
 
   // Allgemein
   function renderNotifyRows() {
-    ['setSound', 'setPreview'].forEach((id) => $(id).closest('.setting').classList.toggle('disabled', !settings.notify));
+    ['setPopup', 'setSound', 'setPreview'].forEach((id) => $(id).closest('.setting').classList.toggle('disabled', !settings.notify));
   }
   $('setNotify').onchange = (e) => {
     settings.notify = e.target.checked; saveSettings(); renderNotifyRows();
     if (settings.notify) setTimeout(() => relay.setupPush(), 2000); // nach der Erlaubnis-Abfrage
   };
+  $('setPopup').onchange = (e) => { settings.popupNotify = e.target.checked; saveSettings(); sendPrefs(); };
   $('setSound').onchange = (e) => { settings.sound = e.target.checked; saveSettings(); };
   $('setPreview').onchange = (e) => { settings.preview = e.target.checked; saveSettings(); };
   $('setBackground').onchange = (e) => { settings.runInBackground = e.target.checked; saveSettings(); sendPrefs(); };

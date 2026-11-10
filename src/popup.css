@@ -1,0 +1,95 @@
+/* Eigenes Benachrichtigungsfenster – gleiche Farben wie die App */
+:root {
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #8e8e93;
+  --line: #e4e4e7;
+  --soft: #f4f4f5;
+  --accent: #1a8cff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #18181b;
+    --fg: #ededed;
+    --muted: #8a8a92;
+    --line: #2a2a2f;
+    --soft: #222226;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #18181b;
+  --fg: #ededed;
+  --muted: #8a8a92;
+  --line: #2a2a2f;
+  --soft: #222226;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; overflow: hidden; }
+body {
+  font: 13.5px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+#list { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+
+.card {
+  position: relative;
+  display: grid; grid-template-columns: 40px 1fr; gap: 0 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 12px 12px 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  cursor: pointer;
+  animation: in .18s ease-out;
+}
+.card.out { animation: out .16s ease-in forwards; }
+@keyframes in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes out { to { opacity: 0; transform: translateX(24px); } }
+
+.av { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--soft); }
+.main { min-width: 0; }
+.top { display: flex; align-items: center; gap: 6px; padding-right: 18px; }
+.title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app { color: var(--muted); font-size: 11.5px; margin-left: auto; flex: none; }
+.body {
+  color: var(--fg); opacity: .85; margin-top: 1px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-word; white-space: pre-wrap;
+}
+.x {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px; border-radius: 6px;
+  border: 0; background: none; color: var(--muted);
+  font-size: 16px; line-height: 22px; cursor: pointer; opacity: 0;
+}
+.card:hover .x { opacity: 1; }
+.x:hover { background: var(--soft); color: var(--fg); }
+
+.reply {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  display: flex; align-items: flex-end; gap: 6px;
+  background: var(--soft);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 4px 4px 4px 10px;
+}
+.reply:focus-within { border-color: var(--accent); }
+textarea {
+  flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg);
+  font: inherit; line-height: 20px; padding: 3px 0; max-height: 104px; height: 26px;
+  user-select: text;
+}
+textarea::placeholder { color: var(--muted); }
+.send {
+  flex: none; width: 28px; height: 28px; border-radius: 8px; border: 0;
+  background: var(--accent); color: #fff; cursor: pointer;
+  display: grid; place-items: center; opacity: .35;
+}
+.send.on { opacity: 1; }
+.send svg { width: 15px; height: 15px; }
+.hint { grid-column: 1 / -1; color: var(--muted); font-size: 11px; margin-top: 4px; padding-left: 2px; }
+.sent { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; margin-top: 8px; }
