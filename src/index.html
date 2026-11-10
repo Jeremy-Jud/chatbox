@@ -29,9 +29,9 @@
     <div class="title"><img src="assets/logo.png" class="tb-logo" alt=""><span id="titleText">WhatsUp</span><span class="dot" id="netDot" title="Netzwerk"></span></div>
     <button id="trophyBtn" class="ic" title="Erfolge"><svg><use href="#i-trophy"/></svg></button>
     <button id="settingsBtn" class="ic" title="Einstellungen"><svg><use href="#i-gear"/></svg><span id="updateDot" class="update-dot hidden"></span></button>
-    <button id="pinBtn" class="ic" title="Immer im Vordergrund"><svg><use href="#i-pin"/></svg></button>
-    <button id="minBtn" class="ic" title="Minimieren"><svg><use href="#i-min"/></svg></button>
-    <button id="closeBtn" class="ic close" title="Schließen"><svg><use href="#i-x"/></svg></button>
+    <button id="pinBtn" class="ic desktop-only" title="Immer im Vordergrund"><svg><use href="#i-pin"/></svg></button>
+    <button id="minBtn" class="ic desktop-only" title="Minimieren"><svg><use href="#i-min"/></svg></button>
+    <button id="closeBtn" class="ic close desktop-only" title="Schließen"><svg><use href="#i-x"/></svg></button>
   </header>
 
   <!-- Erster Start -->
@@ -126,21 +126,26 @@
       <label class="setting"><span>Nachricht in der Vorschau zeigen</span><input type="checkbox" class="switch" id="setPreview"></label>
       <div class="setting"><span class="muted">Wie sieht das aus?</span><button id="notifyTest" class="link">Test senden</button></div>
 
-      <h2>Allgemein</h2>
-      <label class="setting"><span>Beim Schließen im Hintergrund weiterlaufen</span><input type="checkbox" class="switch" id="setBackground"></label>
-      <label class="setting" id="loginRow"><span>Mit Windows starten</span><input type="checkbox" class="switch" id="setLogin"></label>
-      <label class="setting"><span>Immer im Vordergrund</span><input type="checkbox" class="switch" id="setPin"></label>
+      <h2 class="desktop-only">Allgemein</h2>
+      <label class="setting desktop-only"><span>Beim Schließen im Hintergrund weiterlaufen</span><input type="checkbox" class="switch" id="setBackground"></label>
+      <label class="setting desktop-only" id="loginRow"><span>Mit Windows starten</span><input type="checkbox" class="switch" id="setLogin"></label>
+      <label class="setting desktop-only"><span>Immer im Vordergrund</span><input type="checkbox" class="switch" id="setPin"></label>
 
       <h2>Updates</h2>
       <div class="setting"><span>Version</span><span class="muted" id="appVersion">–</span></div>
-      <label class="setting"><span>Beim Start nach Updates suchen</span><input type="checkbox" class="switch" id="setAutoUpdate"></label>
-      <div class="update-box">
+      <label class="setting desktop-only"><span>Beim Start nach Updates suchen</span><input type="checkbox" class="switch" id="setAutoUpdate"></label>
+      <div class="update-box desktop-only">
         <div class="muted" id="updateStatus"></div>
         <div class="bar hidden" id="updateBar"><div id="updateFill"></div></div>
         <button id="updateBtn" class="primary full">Nach Updates suchen</button>
       </div>
 
+      <h2>Speicher</h2>
+      <div class="setting"><span>Belegt</span><span class="muted" id="storageUsed">–</span></div>
+      <div class="setting"><span class="muted">Chats nach Größe anzeigen und leeren</span><button id="storageManage" class="link">Verwalten</button></div>
+
       <h2>Info</h2>
+      <div class="setting desktop-only"><span>Auf iPhone &amp; iPad</span><button id="webLink" class="link">Link kopieren</button></div>
       <div class="setting"><span>Quellcode & Downloads</span><button id="repoLink" class="link">GitHub</button></div>
     </div>
   </section>

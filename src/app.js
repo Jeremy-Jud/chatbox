@@ -144,6 +144,32 @@
     db.del('chats', chatId).catch(() => {});
   }
 
+  // Chatverlauf leeren (Kontakt/Gruppe bleibt), gibt Speicher von Bildern und GIFs frei
+  async function clearChat(chatId) {
+    (chats[chatId] || []).forEach((m) => {
+      if (m.media) { mediaCache.delete(mediaKey(chatId, m.id)); db.del('media', mediaKey(chatId, m.id)).catch(() => {}); }
+    });
+    chats[chatId] = [];
+    delete unread[chatId];
+    clearTimeout(saveTimers[chatId]);
+    await db.put('chats', chatId, []).catch(console.error);
+    saveMeta(); scheduleRender();
+  }
+
+  // Ungefährer Speicherbedarf eines Chats in Bytes (Text + Bilder)
+  async function chatSize(chatId) {
+    let bytes = 0;
+    for (const m of chats[chatId] || []) {
+      bytes += (m.text || '').length * 2 + 120;
+      if (m.media) {
+        const d = await getMedia(chatId, m.id).catch(() => null);
+        if (d) bytes += Math.round(d.length * 0.75);
+      }
+    }
+    return bytes;
+  }
+  const fmtBytes = (b) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
+
   // ================= Hilfsfunktionen =================
   const clean = (s, max) => (typeof s === 'string' ? s.trim().slice(0, max) : '');
   const isFriend = (c) => !!(contacts[c] && contacts[c].friend);
@@ -982,6 +1008,26 @@
     });
   }
 
+  // Zeile „Chatverlauf · 12,3 MB  Leeren“ für die Chat-Infos
+  function clearRow(chatId) {
+    const row = el('div', 'setting clear-row');
+    const label = el('span', '', 'Chatverlauf');
+    const size = el('span', 'muted', ' · wird berechnet…');
+    label.appendChild(size);
+    const btn = el('button', 'link danger-link', 'Leeren');
+    btn.type = 'button';
+    btn.id = 'clearChatBtn';
+    row.append(label, btn);
+    chatSize(chatId).then((b) => { size.textContent = ` · ${fmtBytes(b)}`; });
+    btn.onclick = async () => {
+      if (!confirm('Alle Nachrichten, Bilder und GIFs in diesem Chat auf diesem Gerät löschen? Das kann nicht rückgängig gemacht werden. Bei den anderen bleibt der Chat erhalten.')) return;
+      await clearChat(chatId);
+      size.textContent = ' · leer';
+      toast('Chat geleert');
+    };
+    return row;
+  }
+
   function openInfo() {
     if (!activeChat) return;
     const code = activeChat.slice(2);
@@ -995,6 +1041,7 @@
         head.appendChild(el('div', 'muted', `Code: ${code} · ${isOnline(code) ? 'online' : 'offline'}`));
         if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} Erfolge`));
         box.appendChild(head);
+        box.appendChild(clearRow(activeChat));
         box.appendChild(buttons(['Freund entfernen', 'danger', () => {
           if (confirm(`${c.name} entfernen? Der Chatverlauf wird gelöscht. ${c.name} kann dich erst wieder erreichen, wenn du den Code erneut addest.`)) removeFriend(code);
         }], ['Schließen', 'primary', closeModal]));
@@ -1048,6 +1095,7 @@
         ul.appendChild(li);
       });
       box.appendChild(ul);
+      box.appendChild(clearRow(activeChat));
       const candidates = friendCodes().filter((c) => !g.members.includes(c));
       let list = null;
       if (candidates.length) {
@@ -1153,8 +1201,57 @@
     renderProfAvatar();
     markProfileDirty(false);
     renderTheme();
+    updateStorage();
     show('viewSettings');
   }
+
+  // ---- Speicher ----
+  async function updateStorage() {
+    try {
+      const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+      $('storageUsed').textContent = est && est.usage != null ? fmtBytes(est.usage) : '–';
+    } catch { $('storageUsed').textContent = '–'; }
+  }
+  function openStorage() {
+    openModal(async (box) => {
+      box.appendChild(el('h3', '', 'Speicher verwalten'));
+      const info = el('div', 'muted', 'Wird berechnet…');
+      box.appendChild(info);
+      const ul = el('ul', 'members storage-list');
+      box.appendChild(ul);
+      box.appendChild(buttons(['Schließen', 'primary', () => { closeModal(); updateStorage(); }]));
+      const ids = [...friendCodes().map((c) => 'u:' + c), ...Object.keys(groups).map((g) => 'g:' + g)]
+        .filter((id) => (chats[id] || []).length);
+      const sizes = await Promise.all(ids.map(async (id) => [id, await chatSize(id)]));
+      sizes.sort((a, b) => b[1] - a[1]);
+      info.textContent = sizes.length ? 'Leeren löscht Nachrichten, Bilder und GIFs nur auf diesem Gerät.' : 'Noch keine Chats mit Nachrichten.';
+      sizes.forEach(([id, bytes]) => {
+        const li = el('li');
+        li.appendChild(chatAvatar(id, 'sm'));
+        const isG = id.startsWith('g:');
+        const name = el('span', 'fmeta');
+        name.appendChild(el('span', 'fname', isG ? groups[id.slice(2)].name : nameOf(id.slice(2))));
+        const sz = el('span', 'flast', fmtBytes(bytes));
+        name.appendChild(sz);
+        const btn = el('button', 'link danger-link', 'Leeren');
+        btn.type = 'button';
+        btn.onclick = async () => {
+          if (!confirm('Diesen Chat auf diesem Gerät leeren?')) return;
+          await clearChat(id);
+          sz.textContent = 'leer';
+          btn.remove();
+        };
+        li.append(name, btn);
+        ul.appendChild(li);
+      });
+    });
+  }
+  $('storageManage').onclick = openStorage;
+  const WEB_URL = 'https://jeremy-jud.github.io/whatsup/';
+  $('webLink').onclick = async () => {
+    try { await navigator.clipboard.writeText(WEB_URL); toast('Link kopiert – auf dem iPhone in Safari öffnen'); }
+    catch { toast(WEB_URL); }
+  };
   function renderProfAvatar() {
     const name = $('profName').value || me.name;
     $('profAvatar').replaceChildren(avatarEl(name, draftAvatar, me.code, 'xl', null, draftFrame));
@@ -1238,7 +1335,7 @@
   const upd = { state: 'idle', latest: null, mode: 'dev', version: '' };
   function renderUpdate() {
     const btn = $('updateBtn'), st = $('updateStatus'), bar = $('updateBar');
-    $('appVersion').textContent = upd.version + (upd.mode === 'portable' ? ' (ohne Installation)' : upd.mode === 'dev' ? ' (Entwicklung)' : '');
+    $('appVersion').textContent = upd.version + (upd.mode === 'portable' ? ' (ohne Installation)' : upd.mode === 'dev' ? ' (Entwicklung)' : upd.mode === 'web' ? ' (Web)' : '');
     bar.classList.toggle('hidden', upd.state !== 'downloading');
     btn.disabled = upd.state === 'checking' || upd.state === 'downloading';
     $('updateDot').classList.toggle('hidden', !(upd.state === 'available' || upd.state === 'ready'));
@@ -1287,7 +1384,7 @@
   window.whatsupApp.info().then((i) => {
     upd.version = i.version; upd.mode = i.mode; renderUpdate();
     $('loginRow').classList.toggle('hidden', i.mode !== 'installed');
-    if (settings.autoUpdate && i.mode !== 'dev') setTimeout(() => checkForUpdate(true), 4000);
+    if (settings.autoUpdate && (i.mode === 'installed' || i.mode === 'portable')) setTimeout(() => checkForUpdate(true), 4000);
   });
 
   // ================= Events =================
@@ -1350,9 +1447,52 @@
 
   $('attachBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; sendImageFile(f); };
-  $('msgInput').addEventListener('paste', (e) => {
-    const f = [...(e.clipboardData && e.clipboardData.files || [])].find((x) => x.type.startsWith('image/'));
-    if (f) { e.preventDefault(); sendImageFile(f); }
+  // Bilder/GIFs aus der Zwischenablage, dem Windows-Emoji-Feld (Win + .) oder per Drag & Drop.
+  // Das Emoji-Feld liefert GIFs oft nur als <img src="https://…"> statt als Datei.
+  function pickImage(dt) {
+    if (!dt) return null;
+    const files = [...(dt.files || [])].filter((x) => x.type.startsWith('image/'));
+    const gifFile = files.find((x) => x.type === 'image/gif');
+    if (gifFile) return { file: gifFile };
+    let url = null;
+    try {
+      const html = dt.getData('text/html') || '';
+      const m = /<img[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html);
+      if (m) url = m[1].replace(/&amp;/g, '&');
+      if (!url) {
+        const uri = (dt.getData('text/uri-list') || '').split(/\r?\n/).find((l) => l && !l.startsWith('#'));
+        if (uri && /\.(gif|webp|png|jpe?g)(\?|$)/i.test(uri)) url = uri;
+      }
+    } catch {}
+    // Animiertes GIF per Link bevorzugen – die mitgelieferte Datei ist oft nur ein Standbild
+    if (url && /^https:\/\//i.test(url) && (!files.length || /\.gif(\?|$)|tenor|giphy/i.test(url))) return { url };
+    if (files.length) return { file: files[0] };
+    return null;
+  }
+  async function sendImageFromUrl(url) {
+    if (!activeChat) return;
+    try {
+      toast('📥 GIF wird geladen…');
+      const r = await window.whatsupApp.fetchImage(url);
+      const bin = atob(r.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const ext = r.type.split('/')[1].replace('jpeg', 'jpg');
+      await sendImageFile(new File([bytes], 'bild.' + ext, { type: r.type }));
+    } catch (e) {
+      toast('⚠️ ' + String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    }
+  }
+  function handleImageTransfer(dt, e) {
+    const p = pickImage(dt);
+    if (!p) return false;
+    if (e) e.preventDefault();
+    if (p.file) sendImageFile(p.file); else sendImageFromUrl(p.url);
+    return true;
+  }
+  $('msgInput').addEventListener('paste', (e) => handleImageTransfer(e.clipboardData, e));
+  $('msgInput').addEventListener('beforeinput', (e) => {
+    if (e.dataTransfer && /^insertFrom/.test(e.inputType)) handleImageTransfer(e.dataTransfer, e);
   });
 
   // Drag & Drop ins Chatfenster
@@ -1365,8 +1505,7 @@
     e.preventDefault();
     dragDepth = 0;
     $('dropHint').classList.add('hidden');
-    const f = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/'));
-    if (f) sendImageFile(f); else toast('⚠️ Nur Bilder und GIFs');
+    if (!handleImageTransfer(e.dataTransfer, null)) toast('⚠️ Nur Bilder und GIFs');
   });
   // Dateien außerhalb des Chats nicht im Fenster öffnen
   window.addEventListener('dragover', (e) => e.preventDefault());

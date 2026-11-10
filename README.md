@@ -47,7 +47,9 @@ WhatsUp läuft auch im Browser: **[jeremy-jud.github.io/whatsup](https://jeremy-
 2. Auf **Teilen** (Viereck mit Pfeil) → **„Zum Home-Bildschirm“** tippen.
 3. WhatsUp vom Home-Bildschirm starten. Es läuft dann im Vollbild wie eine eigene App.
 
-Du chattest mit denselben Codes wie in der Windows-App. Wichtig: iPhone und iPad pausieren Apps im Hintergrund.
+Die Web-Version chattet direkt mit der Windows-App. **Jedes Gerät hat aber seinen eigenen Code:** Dein iPhone bekommt einen anderen Code als dein PC, und Chats und Freunde werden nicht zwischen den Geräten übertragen. Deine Freunde müssen deinen iPhone-Code also extra adden.
+
+Wichtig: iPhone und iPad pausieren Apps im Hintergrund.
 Weil WhatsUp ohne Server direkt von Gerät zu Gerät funktioniert, kommen Nachrichten nur an, **solange WhatsUp offen ist**.
 
 ## ✨ Funktionen
@@ -58,7 +60,9 @@ Weil WhatsUp ohne Server direkt von Gerät zu Gerät funktioniert, kommen Nachri
 | 🔑 **Freundescode** | Jeder bekommt einen eigenen Code wie `K7M2QX`. Code eingeben, schon seid ihr verbunden |
 | ⚡ **Echtzeit-Chat** | Nachrichten gehen direkt von PC zu PC (Peer-to-Peer) |
 | 👥 **Gruppenchats** | Gruppen erstellen, Freunde hinzufügen, umbenennen, verlassen. Mit Gruppenbild und Beschreibung |
-| 📷 **Bilder & GIFs** | Über 📎, mit Strg+V oder per Drag & Drop. Bilder werden automatisch verkleinert |
+| 📷 **Bilder & GIFs** | Über 📎, mit Strg+V, per Drag & Drop oder aus dem Windows-Emoji-Feld (Win + .). Bilder werden automatisch verkleinert |
+| 🧹 **Chat leeren** | Verlauf eines Chats löschen und Speicher freigeben. Übersicht aller Chats nach Größe in den Einstellungen |
+| 📱 **Web-Version** | Für iPhone, iPad und Android, chattet direkt mit der Windows-App |
 | 😊 **Emojis** | Emoji-Auswahl mit Kategorien und „Zuletzt benutzt“. Nachrichten nur aus Emojis werden groß angezeigt |
 | 🏆 **Erfolge** | 23 Erfolge zum Freischalten, z. B. 25 Nachrichten, erstes GIF, Nachteule oder 7 Tage am Stück |
 | 🖼️ **Profil** | Profilbild, Name und Status. Deine Freunde sehen dein Bild und deine Erfolge |

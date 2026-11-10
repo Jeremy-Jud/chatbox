@@ -91,6 +91,20 @@
     downloadUpdate: () => Promise.resolve(),
     installUpdate: () => location.reload(),
     openRepo: () => window.open(REPO, '_blank', 'noopener'),
+    // GIF/Bild von einem Link laden (z. B. eingefügtes GIF). Nur https, nur Bilder, max. 7 MB.
+    fetchImage: async (url) => {
+      const u = new URL(url);
+      if (u.protocol !== 'https:') throw new Error('Nur https-Adressen');
+      const res = await fetch(u.href);
+      if (!res.ok) throw new Error('GIF konnte nicht geladen werden (' + res.status + ')');
+      const blob = await res.blob();
+      if (!/^image\/(gif|png|jpeg|webp)$/.test(blob.type)) throw new Error('Keine Bilddatei');
+      if (blob.size > 7 * 1024 * 1024) throw new Error('Das GIF ist zu groß (max. 7 MB)');
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      return { type: blob.type, base64: btoa(s) };
+    },
     onUpdateProgress: noop,
     onUpdateReady: noop,
     onUpdateError: noop,

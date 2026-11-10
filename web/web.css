@@ -19,6 +19,9 @@ html.is-web body {
   }
 }
 
+/* Nur in der Windows-App sinnvoll (z. B. „Link fürs iPhone kopieren“) */
+html.is-web .desktop-only { display: none !important; }
+
 /* Fenster-Knöpfe gibt es im Browser nicht */
 html.is-web #pinBtn,
 html.is-web #minBtn,

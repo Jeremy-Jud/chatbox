@@ -188,6 +188,9 @@ button.danger { color: var(--danger); font-weight: 500; margin-right: auto; }
 .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; cursor: default; }
 label.setting { cursor: pointer; }
 .setting.disabled { opacity: .4; pointer-events: none; }
+.danger-link { color: var(--danger) !important; }
+.clear-row { border-top: 1px solid var(--line); padding-top: 10px; }
+.storage-list li { gap: 10px; }
 .row-end { display: flex; align-items: center; gap: 4px; }
 .small-ic { width: 26px; height: 26px; }
 .small-ic svg { width: 15px; height: 15px; }

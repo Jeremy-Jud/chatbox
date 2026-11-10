@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('whatsupApp', {
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   installUpdate: () => ipcRenderer.send('update:install'),
   openRepo: () => ipcRenderer.send('open:repo'),
+  fetchImage: (url) => ipcRenderer.invoke('fetch:image', url),
   onUpdateProgress: (fn) => ipcRenderer.on('update:progress', (_e, p) => fn(p)),
   onUpdateReady: (fn) => ipcRenderer.on('update:ready', () => fn()),
   onUpdateError: (fn) => ipcRenderer.on('update:error', (_e, m) => fn(m)),
