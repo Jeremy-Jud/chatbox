@@ -48,6 +48,10 @@ replace('<script src="../node_modules/peerjs/dist/peerjs.min.js"></script>',
   '<script src="shim.js"></script>\n  <script src="peerjs.min.js"></script>');
 replace('<h2>Info</h2>', '<h2>Info</h2>\n      <div class="setting"><span class="muted" id="webInfo"></span></div>');
 
+// Versionsnummer an alle eigenen Dateien hängen, damit Safari nach einem Update
+// nicht neue index.html mit alter style.css/app.js aus dem Zwischenspeicher mischt
+html = html.replace(/(href|src)="(?!https?:|data:|#)([^"?]+\.(?:css|js))"/g, `$1="$2?v=${version}"`);
+
 fs.writeFileSync(path.join(out, 'index.html'), html);
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
 console.log(`Web-Version ${version} gebaut: ${path.relative(root, out)}/`);
