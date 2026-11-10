@@ -133,6 +133,7 @@
       <div class="field">Profilrahmen<div id="frameGrid" class="frame-grid"></div></div>
       <label class="field">Name<input id="profName" maxlength="24" autocomplete="off"></label>
       <label class="field">Status<input id="profStatus" maxlength="80" placeholder="Optional" autocomplete="off"></label>
+      <div class="field">Status als Banner<div id="bannerGrid" class="banner-grid"></div></div>
       <div class="setting">
         <span>Dein Code</span>
         <span class="row-end"><span class="code-sm" id="profCode"></span>
@@ -188,6 +189,11 @@
       <span><span id="achCount">0</span> / <span id="achTotal">0</span></span>
       <div class="bar"><div id="achBar"></div></div>
     </div>
+    <form id="redeemForm" class="redeem">
+      <input id="redeemInput" maxlength="40" placeholder="Code einlösen" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button class="primary" type="submit">Einlösen</button>
+    </form>
+    <div id="redeemMsg" class="status redeem-msg"></div>
     <ul id="achList" class="ach-list"></ul>
   </section>
 

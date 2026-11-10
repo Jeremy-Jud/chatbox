@@ -101,6 +101,74 @@
         <circle cx="60" cy="60" r="44" fill="none" stroke="#1a8cff" stroke-width="3.5" stroke-dasharray="69 69" transform="rotate(-45 60 60)"/>
         ${spark(100, 22, 0.6, '#fff')}${spark(20, 98, 0.5, '#fff')}`,
     },
+    // ---------- Exklusiv: nur mit Einlöse-Code (Erfolge → Code einlösen) ----------
+    flames: {
+      name: 'Flammen', locked: true,
+      svg: (() => {
+        const flame = (deg, s) => {
+          const [x, y] = onRing(deg, 42);
+          return `<g transform="translate(${x} ${y}) rotate(${deg + 90}) scale(${s})">
+            <path d="M0 2C-7-3-6-11 0-20 6-11 7-3 0 2Z" fill="#ff5a1f"/>
+            <path d="M0 1C-3.5-2-3-7 0-12 3-7 3.5-2 0 1Z" fill="#ffd166"/></g>`;
+        };
+        let s = '';
+        [-175, -152, -128, -105, -90, -75, -52, -28, -5].forEach((d, i) => { s += flame(d, [0.6, 0.72, 0.84, 0.94, 1, 0.94, 0.84, 0.72, 0.6][i]); });
+        return `<circle cx="60" cy="60" r="42" fill="none" stroke="#ff7a1f" stroke-width="3"/>` + s;
+      })(),
+    },
+    galaxy: {
+      name: 'Galaxie', locked: true,
+      svg: `<defs><linearGradient id="wuGalaxy" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#7c3aed"/><stop offset=".5" stop-color="#ec4899"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs>
+        <circle cx="60" cy="60" r="44" fill="none" stroke="url(#wuGalaxy)" stroke-width="12" opacity=".25"/>
+        <circle cx="60" cy="60" r="44" fill="none" stroke="url(#wuGalaxy)" stroke-width="4.5"/>
+        ${spark(16, 26, 0.9, '#fff')}${spark(104, 18, 0.7, '#e9d5ff')}${spark(112, 70, 0.55, '#fff')}${spark(14, 92, 0.6, '#a5f3fc')}${spark(94, 108, 0.85, '#fff')}
+        <circle cx="34" cy="10" r="1.6" fill="#fff"/><circle cx="88" cy="6" r="1.2" fill="#fff"/><circle cx="6" cy="56" r="1.3" fill="#fff"/><circle cx="116" cy="98" r="1.4" fill="#fff"/>`,
+    },
+    laurel: {
+      name: 'Lorbeerkranz', locked: true,
+      svg: (() => {
+        const leaf = (deg, side) => {
+          const [x, y] = onRing(deg, 46);
+          return `<ellipse cx="${x}" cy="${y}" rx="3.6" ry="8" transform="rotate(${deg + (side ? 40 : -40)} ${x} ${y})" fill="#f2c94c" stroke="#a87b12" stroke-width="1.2"/>`;
+        };
+        let s = '';
+        for (let d = 100; d <= 250; d += 19) s += leaf(d, 1);
+        for (let d = 80; d >= -70; d -= 19) s += leaf(d, 0);
+        return s + `<path d="M52 108 60 102 68 108" fill="none" stroke="#a87b12" stroke-width="2.5" stroke-linecap="round"/>`;
+      })(),
+    },
+    rainbow: {
+      name: 'Regenbogen', locked: true,
+      svg: (() => {
+        const cols = ['#ff4d4d', '#ff9f1c', '#ffe14d', '#3ecf8e', '#1a8cff', '#9b5de5'];
+        const L = 2 * Math.PI * 44, seg = L / cols.length;
+        return `<circle cx="60" cy="60" r="44" fill="none" stroke="#fff" stroke-width="10" opacity=".12"/>` +
+          cols.map((c, i) => `<circle cx="60" cy="60" r="44" fill="none" stroke="${c}" stroke-width="5.5" stroke-dasharray="${seg.toFixed(2)} ${(L - seg).toFixed(2)}" stroke-dashoffset="${(-i * seg).toFixed(2)}" transform="rotate(-90 60 60)"/>`).join('');
+      })(),
+    },
+    diamond: {
+      name: 'Diamant', locked: true,
+      svg: (() => {
+        const gem = (deg, s) => {
+          const [x, y] = onRing(deg, 44);
+          return `<path transform="translate(${x} ${y}) scale(${s})" d="M0-8 6.5 0 0 8-6.5 0Z" fill="#7dd3fc" stroke="#fff" stroke-width="1.2"/>
+            <path transform="translate(${x} ${y}) scale(${s})" d="M0-8 2.5 0 0 8" fill="none" stroke="#e0f2fe" stroke-width="1"/>`;
+        };
+        return `<circle cx="60" cy="60" r="44" fill="none" stroke="#38bdf8" stroke-width="2.5"/>` +
+          [-90, -30, 30, 90, 150, 210].map((d, i) => gem(d, i === 0 ? 1.5 : 1)).join('') +
+          spark(100, 16, 0.55, '#fff') + spark(18, 100, 0.5, '#fff');
+      })(),
+    },
+  };
+
+  // Banner für den Profil-Status (ebenfalls nur mit Code)
+  window.WHATSUP_BANNERS = {
+    sunset: { name: 'Sonnenuntergang', bg: 'linear-gradient(135deg, #ff5f6d, #ffc371)' },
+    ocean: { name: 'Ozean', bg: 'linear-gradient(135deg, #0061ff, #60efff)' },
+    neon: { name: 'Neon', bg: 'linear-gradient(135deg, #f72585, #7209b7 55%, #3a0ca3)' },
+    gold: { name: 'Gold', bg: 'linear-gradient(135deg, #a87b12, #ffd700 50%, #b8860b)' },
+    galaxy: { name: 'Galaxie', bg: 'radial-gradient(circle at 20% 30%, rgba(255,255,255,.35) 0 1px, transparent 2px), radial-gradient(circle at 75% 60%, rgba(255,255,255,.3) 0 1px, transparent 2px), linear-gradient(135deg, #0f0c29, #302b63 55%, #6d28d9)' },
   };
 
   window.WHATSUP_FRAMES = FRAMES;

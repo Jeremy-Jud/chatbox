@@ -527,3 +527,33 @@ button.primary:disabled { opacity: .35; cursor: default; }
 
 /* Streaks */
 .fire { margin-left: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+/* ================= Codes einlösen, exklusive Rahmen & Banner ================= */
+.redeem { display: flex; gap: 6px; margin: 0 14px; }
+.redeem input { text-transform: uppercase; letter-spacing: 1px; }
+.redeem input:placeholder-shown { text-transform: none; letter-spacing: 0; }
+.redeem .primary { flex-shrink: 0; padding: 8px 14px; }
+.redeem-msg { margin: 6px 16px 4px; }
+.redeem-msg.ok { color: var(--online); }
+.frame-opt.locked { opacity: .45; }
+.frame-opt.locked .frame-name::before { content: '🔒 '; }
+.frame-opt.exclusive:not(.locked) .frame-name::before { content: '✨ '; }
+.banner-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+.banner-opt {
+  height: 44px; border-radius: 10px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+  display: grid; place-items: center; padding: 0 4px; text-align: center; line-height: 1.2;
+}
+.banner-opt.none { background: var(--soft); color: var(--muted); text-shadow: none; }
+.banner-opt.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.banner-opt.locked { opacity: .4; }
+.banner-opt.locked::before { content: '🔒 '; }
+/* Status als Banner: im Profil-Fenster und im Chat-Kopf */
+.banner {
+  width: 100%; border-radius: 14px; padding: 14px 16px; color: #fff; font-weight: 700; font-size: 15px; text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .45); word-break: break-word; box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+}
+.banner-pill {
+  display: inline-block; padding: 1px 8px; border-radius: 8px; color: #fff; font-weight: 600; font-size: 11px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .4); vertical-align: 1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.info-head { padding-top: 10px; }

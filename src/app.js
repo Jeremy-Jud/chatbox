@@ -327,7 +327,7 @@
 
   function helloPayload(code) {
     return {
-      type: 'hello', v: PROTO, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null,
+      type: 'hello', v: PROTO, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null, banner: validBanner(me.banner),
       badges: Object.keys(unlocked).length, ctx: isFriend(code) ? 'friend' : 'group',
       keys: relay.publicKeys(),
     };
@@ -357,6 +357,7 @@
         c.status = clean(data.status, 80);
         c.avatar = validAvatar(data.avatar);
         c.frame = validFrame(data.frame);
+        c.banner = validBanner(data.banner);
         relay.pinKeys(code, data.keys);
         relay.saveNames();
         c.badges = Math.max(0, Math.min(999, Number(data.badges) || 0));
@@ -852,6 +853,47 @@
 
   const FRAMES = window.WHATSUP_FRAMES;
   const validFrame = (f) => (typeof f === 'string' && Object.prototype.hasOwnProperty.call(FRAMES, f) ? f : null);
+  const BANNERS = window.WHATSUP_BANNERS;
+  const validBanner = (b) => (typeof b === 'string' && Object.prototype.hasOwnProperty.call(BANNERS, b) ? b : null);
+
+  // Einlöse-Codes (Liste mit allen Codes: CODES.md im Repo). Groß/klein, Leerzeichen und Bindestriche egal.
+  const REDEEM_CODES = {
+    FLAMMENMEER: ['frame:flames'],
+    MILCHSTRASSE: ['frame:galaxy'],
+    SIEGERKRANZ: ['frame:laurel'],
+    REGENBOGEN: ['frame:rainbow'],
+    DIAMANTEN: ['frame:diamond'],
+    ABENDROT: ['banner:sunset'],
+    TIEFSEE: ['banner:ocean'],
+    NEONNACHT: ['banner:neon'],
+    GOLDRAUSCH: ['banner:gold'],
+    STERNENSTAUB: ['banner:galaxy'],
+    WHATSUPVIP: [...Object.keys(FRAMES).filter((f) => FRAMES[f].locked).map((f) => 'frame:' + f), ...Object.keys(BANNERS).map((b) => 'banner:' + b)],
+  };
+  let redeemed = store.load('redeemed', []);
+  const rewards = () => new Set(redeemed.flatMap((c) => REDEEM_CODES[c] || []));
+  const frameLocked = (id) => !!(id && FRAMES[id] && FRAMES[id].locked && !rewards().has('frame:' + id));
+  const bannerLocked = (id) => !!(id && !rewards().has('banner:' + id));
+  const rewardName = (r) => { const [k, id] = r.split(':'); return k === 'frame' ? `Rahmen „${FRAMES[id].name}“` : `Banner „${BANNERS[id].name}“`; };
+  function redeemCode(input) {
+    const code = String(input || '').toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '');
+    if (!code) return { ok: false, text: 'Bitte gib einen Code ein.' };
+    const list = REDEEM_CODES[code];
+    if (!list) return { ok: false, text: 'Diesen Code gibt es nicht.' };
+    if (redeemed.includes(code)) return { ok: false, text: 'Diesen Code hast du schon eingelöst.' };
+    const before = rewards();
+    redeemed.push(code);
+    store.save('redeemed', redeemed);
+    const fresh = list.filter((r) => !before.has(r));
+    if (!fresh.length) return { ok: true, text: 'Eingelöst – du hattest schon alles davon.' };
+    return { ok: true, text: (fresh.length > 2 ? fresh.length + ' Belohnungen' : fresh.map(rewardName).join(' und ')) + ' freigeschaltet! Auswählen unter Du → Profil.' };
+  }
+  // Status als farbiges Banner
+  function bannerEl(text, banner, pill) {
+    const b = el(pill ? 'span' : 'div', pill ? 'banner-pill' : 'banner', text);
+    b.style.background = BANNERS[banner].bg;
+    return b;
+  }
 
   function avatarEl(name, avatar, seed, cls, online, frame) {
     const a = el('span', 'avatar' + (cls ? ' ' + cls : ''));
@@ -999,7 +1041,8 @@
       $('chatName').textContent = c.name;
       const fb = fire.badge(code);
       if (fb) $('chatName').appendChild(el('span', 'fire', fb));
-      $('chatSub').textContent = (isOnline(code) ? 'online' : 'offline') + (c.status ? ' · ' + c.status : '');
+      $('chatSub').textContent = (isOnline(code) ? 'online' : 'offline') + (c.status && !c.banner ? ' · ' + c.status : '');
+      if (c.banner && c.status) { $('chatSub').append(' · '); $('chatSub').appendChild(bannerEl(c.status, c.banner, true)); }
       $('chatName').title = fb ? 'Streak: Schreibt euch jeden Tag beide mindestens eine Nachricht, sonst ist er weg.' : '';
     }
 
@@ -1182,7 +1225,8 @@
         const head = el('div', 'info-head');
         head.appendChild(avatarEl(c.name, c.avatar, code, 'xl', isOnline(code), c.frame));
         head.appendChild(el('h3', '', c.name));
-        if (c.status) head.appendChild(el('div', 'muted', c.status));
+        if (c.banner) head.appendChild(bannerEl(c.status || c.name, c.banner));
+        else if (c.status) head.appendChild(el('div', 'muted', c.status));
         head.appendChild(el('div', 'muted', `Code: ${code} · ${isOnline(code) ? 'online' : 'offline'}`));
         if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} Erfolge`));
         box.appendChild(head);
@@ -1334,9 +1378,11 @@
   // ================= Einstellungen =================
   let draftAvatar = null;
   let draftFrame = null;
+  let draftBanner = null;
   function openSettings() {
     draftAvatar = me.avatar || null;
     draftFrame = validFrame(me.frame);
+    draftBanner = validBanner(me.banner);
     $('profName').value = me.name;
     $('profStatus').value = me.status || '';
     $('profCode').textContent = me.code;
@@ -1412,20 +1458,39 @@
     const grid = $('frameGrid');
     grid.replaceChildren();
     [null, ...Object.keys(FRAMES)].forEach((id) => {
-      const b = el('button', 'frame-opt' + (id === draftFrame ? ' active' : ''));
+      const locked = frameLocked(id);
+      const b = el('button', 'frame-opt' + (id === draftFrame ? ' active' : '') + (id && FRAMES[id].locked ? ' exclusive' : '') + (locked ? ' locked' : ''));
       b.type = 'button';
-      b.title = id ? FRAMES[id].name : 'Kein Rahmen';
+      b.title = id ? FRAMES[id].name + (locked ? ' – mit einem Code freischalten (Erfolge)' : '') : 'Kein Rahmen';
       b.appendChild(avatarEl(name, draftAvatar, me.code, 'md', null, id));
       b.appendChild(el('span', 'frame-name', id ? FRAMES[id].name : 'Keiner'));
-      b.onclick = () => { draftFrame = id; renderProfAvatar(); markProfileDirty(profileDirty()); };
+      b.onclick = () => {
+        if (locked) { toast('🔒 Exklusiver Rahmen – Code einlösen unter Erfolge 🏆'); return; }
+        draftFrame = id; renderProfAvatar(); markProfileDirty(profileDirty());
+      };
       grid.appendChild(b);
+    });
+    // Banner-Auswahl
+    const bg = $('bannerGrid');
+    bg.replaceChildren();
+    [null, ...Object.keys(BANNERS)].forEach((id) => {
+      const locked = bannerLocked(id);
+      const b = el('button', 'banner-opt' + (id ? '' : ' none') + (id === draftBanner ? ' active' : '') + (locked ? ' locked' : ''), id ? BANNERS[id].name : 'Kein Banner');
+      b.type = 'button';
+      if (id) b.style.background = BANNERS[id].bg;
+      b.title = locked ? 'Mit einem Code freischalten (Erfolge)' : '';
+      b.onclick = () => {
+        if (locked) { toast('🔒 Exklusives Banner – Code einlösen unter Erfolge 🏆'); return; }
+        draftBanner = id; renderProfAvatar(); markProfileDirty(profileDirty());
+      };
+      bg.appendChild(b);
     });
   }
   function markProfileDirty(dirty) {
     $('profSave').classList.toggle('hidden', !dirty);
   }
   const profileDirty = () => $('profName').value.trim() !== me.name || $('profStatus').value.trim() !== (me.status || '') ||
-    draftAvatar !== (me.avatar || null) || draftFrame !== validFrame(me.frame);
+    draftAvatar !== (me.avatar || null) || draftFrame !== validFrame(me.frame) || draftBanner !== validBanner(me.banner);
 
   $('avatarChange').onclick = () => $('avatarInput').click();
   $('avatarRemove').onclick = () => { draftAvatar = null; renderProfAvatar(); markProfileDirty(profileDirty()); };
@@ -1440,6 +1505,7 @@
     if (!name) { $('profName').focus(); return; }
     me.name = name.slice(0, 24);
     me.status = $('profStatus').value.trim().slice(0, 80);
+    me.banner = draftBanner;
     if (draftAvatar && draftAvatar !== me.avatar) stats.avatarSet++;
     me.avatar = draftAvatar;
     if (draftFrame && draftFrame !== me.frame) stats.frameSet = (stats.frameSet || 0) + 1;
@@ -1582,6 +1648,15 @@
     else if (!$('modal').classList.contains('hidden')) closeModal();
     else if (!$('emojiPanel').classList.contains('hidden')) hideEmoji();
   });
+
+  $('redeemForm').onsubmit = (e) => {
+    e.preventDefault();
+    const r = redeemCode($('redeemInput').value);
+    $('redeemMsg').textContent = r.text;
+    $('redeemMsg').classList.toggle('ok', r.ok);
+    $('redeemMsg').classList.toggle('err', !r.ok);
+    if (r.ok) { $('redeemInput').value = ''; toast('🎁 ' + r.text.split('!')[0] + '!', true); }
+  };
 
   $('setupBtn').onclick = () => {
     const name = $('setupName').value.trim();
