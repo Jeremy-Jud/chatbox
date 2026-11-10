@@ -270,7 +270,7 @@
 
   function helloPayload(code) {
     return {
-      type: 'hello', v: 2, name: me.name, status: me.status || '', avatar: me.avatar || null,
+      type: 'hello', v: 2, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null,
       badges: Object.keys(unlocked).length, ctx: isFriend(code) ? 'friend' : 'group',
     };
   }
@@ -289,6 +289,7 @@
         c.name = clean(data.name, 24) || c.name;
         c.status = clean(data.status, 80);
         c.avatar = validAvatar(data.avatar);
+        c.frame = validFrame(data.frame);
         c.badges = Math.max(0, Math.min(999, Number(data.badges) || 0));
         if (data.ctx !== 'group' && !c.friend) {
           c.friend = true;
@@ -663,8 +664,18 @@
     return e;
   }
 
-  function avatarEl(name, avatar, seed, cls, online) {
+  const FRAMES = window.WHATSUP_FRAMES;
+  const validFrame = (f) => (typeof f === 'string' && Object.prototype.hasOwnProperty.call(FRAMES, f) ? f : null);
+
+  function avatarEl(name, avatar, seed, cls, online, frame) {
     const a = el('span', 'avatar' + (cls ? ' ' + cls : ''));
+    if (validFrame(frame)) {
+      // SVG stammt nur aus der eigenen, festen Liste in frames.js
+      const f = el('span', 'frame');
+      f.innerHTML = `<svg viewBox="0 0 120 120" aria-hidden="true">${FRAMES[frame].svg}</svg>`;
+      a.appendChild(f);
+      a.classList.add('framed');
+    }
     if (avatar) {
       const i = document.createElement('img');
       i.src = avatar; i.alt = '';
@@ -683,7 +694,7 @@
       return avatarEl(g ? g.name : '?', null, chatId, 'sq ' + (cls || ''));
     }
     const code = chatId.slice(2), c = contacts[code] || {};
-    return avatarEl(c.name, c.avatar, code, cls, withDot ? isOnline(code) : null);
+    return avatarEl(c.name, c.avatar, code, cls, withDot ? isOnline(code) : null, c.frame);
   }
 
   function setNet(on) { $('netDot').classList.toggle('on', on); }
@@ -724,7 +735,7 @@
 
   function renderList() {
     const meAv = $('meAvatar');
-    meAv.replaceChildren(avatarEl(me.name, me.avatar, me.code));
+    meAv.replaceChildren(avatarEl(me.name, me.avatar, me.code, '', null, me.frame));
     $('meName').textContent = me.name;
     $('myCode').textContent = me.code;
 
@@ -873,7 +884,7 @@
       const lab = el('label');
       const cb = document.createElement('input');
       cb.type = 'checkbox'; cb.value = c;
-      lab.append(cb, avatarEl(nameOf(c), contacts[c] && contacts[c].avatar, c, 'sm'), el('span', '', nameOf(c)));
+      lab.append(cb, avatarEl(nameOf(c), contacts[c] && contacts[c].avatar, c, 'sm', null, contacts[c] && contacts[c].frame), el('span', '', nameOf(c)));
       li.appendChild(lab);
       ul.appendChild(li);
     });
@@ -922,7 +933,7 @@
       const c = contacts[code];
       openModal((box) => {
         const head = el('div', 'info-head');
-        head.appendChild(avatarEl(c.name, c.avatar, code, 'xl', isOnline(code)));
+        head.appendChild(avatarEl(c.name, c.avatar, code, 'xl', isOnline(code), c.frame));
         head.appendChild(el('h3', '', c.name));
         if (c.status) head.appendChild(el('div', 'muted', c.status));
         head.appendChild(el('div', 'muted', `Code: ${code} · ${isOnline(code) ? 'online' : 'offline'}`));
@@ -951,7 +962,7 @@
       [me.code, ...others(g)].forEach((c) => {
         const li = el('li');
         const cc = contacts[c] || {};
-        li.appendChild(avatarEl(nameOf(c), c === me.code ? me.avatar : cc.avatar, c, 'sm', c === me.code ? null : isOnline(c)));
+        li.appendChild(avatarEl(nameOf(c), c === me.code ? me.avatar : cc.avatar, c, 'sm', c === me.code ? null : isOnline(c), c === me.code ? me.frame : cc.frame));
         li.appendChild(el('span', '', nameOf(c) + (c === me.code ? ' (du)' : '') + (c === g.owner ? ' 👑' : '')));
         ul.appendChild(li);
       });
@@ -1026,8 +1037,10 @@
 
   // ================= Einstellungen =================
   let draftAvatar = null;
+  let draftFrame = null;
   function openSettings() {
     draftAvatar = me.avatar || null;
+    draftFrame = validFrame(me.frame);
     $('profName').value = me.name;
     $('profStatus').value = me.status || '';
     $('profCode').textContent = me.code;
@@ -1044,11 +1057,27 @@
     renderTheme();
     show('viewSettings');
   }
-  function renderProfAvatar() { $('profAvatar').replaceChildren(avatarEl($('profName').value || me.name, draftAvatar, me.code, 'xl')); }
+  function renderProfAvatar() {
+    const name = $('profName').value || me.name;
+    $('profAvatar').replaceChildren(avatarEl(name, draftAvatar, me.code, 'xl', null, draftFrame));
+    // Rahmen-Auswahl mit Vorschau des eigenen Bildes
+    const grid = $('frameGrid');
+    grid.replaceChildren();
+    [null, ...Object.keys(FRAMES)].forEach((id) => {
+      const b = el('button', 'frame-opt' + (id === draftFrame ? ' active' : ''));
+      b.type = 'button';
+      b.title = id ? FRAMES[id].name : 'Kein Rahmen';
+      b.appendChild(avatarEl(name, draftAvatar, me.code, 'md', null, id));
+      b.appendChild(el('span', 'frame-name', id ? FRAMES[id].name : 'Keiner'));
+      b.onclick = () => { draftFrame = id; renderProfAvatar(); markProfileDirty(profileDirty()); };
+      grid.appendChild(b);
+    });
+  }
   function markProfileDirty(dirty) {
     $('profSave').classList.toggle('hidden', !dirty);
   }
-  const profileDirty = () => $('profName').value.trim() !== me.name || $('profStatus').value.trim() !== (me.status || '') || draftAvatar !== (me.avatar || null);
+  const profileDirty = () => $('profName').value.trim() !== me.name || $('profStatus').value.trim() !== (me.status || '') ||
+    draftAvatar !== (me.avatar || null) || draftFrame !== validFrame(me.frame);
 
   $('avatarChange').onclick = () => $('avatarInput').click();
   $('avatarRemove').onclick = () => { draftAvatar = null; renderProfAvatar(); markProfileDirty(profileDirty()); };
@@ -1065,6 +1094,8 @@
     me.status = $('profStatus').value.trim().slice(0, 80);
     if (draftAvatar && draftAvatar !== me.avatar) stats.avatarSet++;
     me.avatar = draftAvatar;
+    if (draftFrame && draftFrame !== me.frame) stats.frameSet = (stats.frameSet || 0) + 1;
+    me.frame = draftFrame;
     saveMeta();
     checkAchievements();
     broadcastProfile();

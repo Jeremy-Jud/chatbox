@@ -51,6 +51,7 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/wha
 | 😊 **Emojis** | Emoji-Auswahl mit Kategorien und „Zuletzt benutzt“. Nachrichten nur aus Emojis werden groß angezeigt |
 | 🏆 **Erfolge** | 23 Erfolge zum Freischalten, z. B. 25 Nachrichten, erstes GIF, Nachteule oder 7 Tage am Stück |
 | 🖼️ **Profil** | Profilbild, Name und Status. Deine Freunde sehen dein Bild und deine Erfolge |
+| 🐱 **Profilrahmen** | 11 Rahmen fürs Profilbild: Katzenohren, Hasenohren, Teufelshörner, Heiligenschein, Krone, Partyhut, Kopfhörer, Blumenkranz, Herzen, Funkeln, Neon |
 | 🔔 **Benachrichtigungen** | Windows-Benachrichtigungen wie bei Teams/Discord mit Profilbild. Ein Klick öffnet den Chat. Roter Zähler am Taskleisten-Icon |
 | 🖥️ **Hintergrund** | ✕ schließt nicht, WhatsUp läuft unten rechts im Infobereich weiter. Optional mit Windows starten |
 | ⚙️ **Einstellungen** | Profil, Hell/Dunkel, Benachrichtigungen, immer im Vordergrund |
