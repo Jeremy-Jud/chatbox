@@ -31,7 +31,10 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 - Die Oberfläche läuft mit `contextIsolation`, `sandbox` und ohne `nodeIntegration`. Dazu kommen eine strenge Content Security Policy, gesperrte Navigation und ein Berechtigungsfilter.
 - Alle empfangenen Texte werden als reiner Text angezeigt (kein HTML), was XSS verhindert.
 
+- Updates (nur installierte Version) kommen ausschließlich aus den GitHub-Releases dieses Repos über HTTPS. Die SHA-512-Prüfsumme aus `latest.yml` wird vor der Installation geprüft.
+
 **Bekannte Grenzen:**
+- Updates sind nicht code-signiert. Die Prüfsumme schützt vor beschädigten Downloads, aber wer Schreibrechte auf dieses Repo hat, kann Updates veröffentlichen. Darum ist Zwei-Faktor-Anmeldung für den Account wichtig.
 - Der Freundescode ist gleichzeitig die Adresse im Netzwerk. Wer den Code kennt, kann eine Verbindung aufbauen.
 - Es gibt keine Prüfung, dass ein Gerät dauerhaft derselben Person gehört (kein Schlüssel-Fingerprint).
 - Chatpartner sehen bei einer direkten Verbindung gegenseitig ihre IP-Adresse.

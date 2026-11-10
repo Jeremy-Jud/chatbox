@@ -20,6 +20,7 @@
       <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7-7L13 4.5a3.3 3.3 0 0 1 4.7 4.7l-7.8 7.8a1.7 1.7 0 0 1-2.3-2.4L14.8 7.4"/></symbol>
       <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
       <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="10" height="10" rx="2"/><path d="M5 15V7a2 2 0 0 1 2-2h8"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
     </defs>
   </svg>
 
@@ -27,6 +28,7 @@
     <button id="backBtn" class="ic hidden" title="Zurück"><svg><use href="#i-back"/></svg></button>
     <div class="title"><img src="assets/logo.png" class="tb-logo" alt=""><span id="titleText">WhatsUp</span><span class="dot" id="netDot" title="Netzwerk"></span></div>
     <button id="trophyBtn" class="ic" title="Erfolge"><svg><use href="#i-trophy"/></svg></button>
+    <button id="settingsBtn" class="ic" title="Einstellungen"><svg><use href="#i-gear"/></svg><span id="updateDot" class="update-dot hidden"></span></button>
     <button id="pinBtn" class="ic" title="Immer im Vordergrund"><svg><use href="#i-pin"/></svg></button>
     <button id="minBtn" class="ic" title="Minimieren"><svg><use href="#i-min"/></svg></button>
     <button id="closeBtn" class="ic close" title="Schließen"><svg><use href="#i-x"/></svg></button>
@@ -90,18 +92,48 @@
     <div id="dropHint" class="drop-hint hidden">Bild hier ablegen</div>
   </section>
 
-  <!-- Profil -->
-  <section id="viewProfile" class="view hidden">
-    <div class="profile">
-      <span id="profAvatar"></span>
-      <div class="row">
-        <button id="avatarChange" class="link">Bild ändern</button>
-        <button id="avatarRemove" class="link muted-link">Entfernen</button>
+  <!-- Einstellungen -->
+  <section id="viewSettings" class="view hidden">
+    <div class="settings">
+      <h2>Profil</h2>
+      <div class="profile-head">
+        <span id="profAvatar"></span>
+        <div class="profile-actions">
+          <button id="avatarChange" class="link">Bild ändern</button>
+          <button id="avatarRemove" class="link muted-link">Entfernen</button>
+        </div>
       </div>
-      <label>Name<input id="profName" maxlength="24" autocomplete="off"></label>
-      <label>Status<input id="profStatus" maxlength="80" placeholder="Optional" autocomplete="off"></label>
-      <label>Code<span class="code" id="profCode"></span></label>
-      <button id="profSave" class="primary">Speichern</button>
+      <label class="field">Name<input id="profName" maxlength="24" autocomplete="off"></label>
+      <label class="field">Status<input id="profStatus" maxlength="80" placeholder="Optional" autocomplete="off"></label>
+      <div class="setting">
+        <span>Dein Code</span>
+        <span class="row-end"><span class="code-sm" id="profCode"></span>
+          <button id="profCopy" class="ic small-ic" title="Kopieren"><svg><use href="#i-copy"/></svg></button></span>
+      </div>
+      <button id="profSave" class="primary full hidden">Speichern</button>
+
+      <h2>Darstellung</h2>
+      <div class="segmented" id="themeSeg">
+        <button data-theme="system">System</button>
+        <button data-theme="light">Hell</button>
+        <button data-theme="dark">Dunkel</button>
+      </div>
+
+      <h2>Allgemein</h2>
+      <label class="setting"><span>Benachrichtigungen</span><input type="checkbox" class="switch" id="setNotify"></label>
+      <label class="setting"><span>Immer im Vordergrund</span><input type="checkbox" class="switch" id="setPin"></label>
+
+      <h2>Updates</h2>
+      <div class="setting"><span>Version</span><span class="muted" id="appVersion">–</span></div>
+      <label class="setting"><span>Beim Start nach Updates suchen</span><input type="checkbox" class="switch" id="setAutoUpdate"></label>
+      <div class="update-box">
+        <div class="muted" id="updateStatus"></div>
+        <div class="bar hidden" id="updateBar"><div id="updateFill"></div></div>
+        <button id="updateBtn" class="primary full">Nach Updates suchen</button>
+      </div>
+
+      <h2>Info</h2>
+      <div class="setting"><span>Quellcode & Downloads</span><button id="repoLink" class="link">GitHub</button></div>
     </div>
   </section>
 

@@ -1,6 +1,6 @@
 {
   "name": "whatsup",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "WhatsUp: kleine Desktop-Chat-App. Freunde per Code hinzufügen und direkt chatten.",
   "author": "Jeremy-Jud",
   "homepage": "https://github.com/Jeremy-Jud/whatsup",
@@ -11,10 +11,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win --publish never"
   },
   "license": "MIT",
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "peerjs": "^1.5.5"
   },
   "devDependencies": {
@@ -31,12 +32,29 @@
       "node_modules/peerjs/dist/peerjs.min.js"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "build/icon.ico",
       "signExecutable": false
     },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "WhatsUp-Setup.exe",
+      "shortcutName": "WhatsUp",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
     "portable": {
       "artifactName": "WhatsUp.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Jeremy-Jud",
+      "repo": "whatsup"
     }
   },
   "overrides": {

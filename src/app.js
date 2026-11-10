@@ -69,6 +69,8 @@
   let blocked = store.load('blocked', []);
   let unread = store.load('unread', {});           // chatId -> Anzahl
   let recentEmojis = store.load('recentEmojis', []);
+  const settings = Object.assign({ theme: 'system', notify: true, autoUpdate: true }, store.load('settings', {}));
+  const saveSettings = () => store.save('settings', settings);
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
   const stats = Object.assign({
     sent: 0, groupSent: 0, images: 0, gifs: 0, emojis: 0, received: 0, groupsCreated: 0,
@@ -579,7 +581,7 @@
   // ================= Benachrichtigungen & Toasts =================
   function notify(title, body) {
     window.chatboxWindow && window.chatboxWindow.flash();
-    if (document.hasFocus()) return;
+    if (document.hasFocus() || !settings.notify) return;
     try { new Notification(title, { body: String(body).slice(0, 120) }); } catch {}
   }
 
@@ -643,11 +645,13 @@
 
   let view = 'viewSetup';
   let activeChat = null;
-  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewProfile: 'Mein Profil', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp' };
+  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewSettings: 'Einstellungen', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp' };
 
   function show(v) {
     view = v;
-    ['viewSetup', 'viewList', 'viewChat', 'viewProfile', 'viewAchievements'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
+    ['viewSetup', 'viewList', 'viewChat', 'viewSettings', 'viewAchievements'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
+    $('settingsBtn').classList.toggle('hidden', v === 'viewSetup');
+    $('settingsBtn').classList.toggle('active', v === 'viewSettings');
     $('backBtn').classList.toggle('hidden', v === 'viewList' || v === 'viewSetup');
     $('trophyBtn').classList.toggle('hidden', v === 'viewSetup');
     $('trophyBtn').classList.toggle('active', v === 'viewAchievements');
@@ -973,25 +977,35 @@
     else hideEmoji();
   };
 
-  // ================= Profil =================
+  // ================= Einstellungen =================
   let draftAvatar = null;
-  function openProfile() {
+  function openSettings() {
     draftAvatar = me.avatar || null;
     $('profName').value = me.name;
     $('profStatus').value = me.status || '';
     $('profCode').textContent = me.code;
+    $('setNotify').checked = settings.notify;
+    $('setAutoUpdate').checked = settings.autoUpdate;
+    window.chatboxWindow.isPinned().then((p) => { $('setPin').checked = p; });
     renderProfAvatar();
-    show('viewProfile');
+    markProfileDirty(false);
+    renderTheme();
+    show('viewSettings');
   }
-  function renderProfAvatar() { $('profAvatar').replaceChildren(avatarEl(me.name, draftAvatar, me.code, 'xl')); }
+  function renderProfAvatar() { $('profAvatar').replaceChildren(avatarEl($('profName').value || me.name, draftAvatar, me.code, 'xl')); }
+  function markProfileDirty(dirty) {
+    $('profSave').classList.toggle('hidden', !dirty);
+  }
+  const profileDirty = () => $('profName').value.trim() !== me.name || $('profStatus').value.trim() !== (me.status || '') || draftAvatar !== (me.avatar || null);
 
   $('avatarChange').onclick = () => $('avatarInput').click();
-  $('avatarRemove').onclick = () => { draftAvatar = null; renderProfAvatar(); };
+  $('avatarRemove').onclick = () => { draftAvatar = null; renderProfAvatar(); markProfileDirty(profileDirty()); };
   $('avatarInput').onchange = async (e) => {
     const f = e.target.files[0];
     e.target.value = '';
-    try { draftAvatar = await prepareAvatar(f); renderProfAvatar(); } catch (err) { toast('⚠️ ' + err.message); }
+    try { draftAvatar = await prepareAvatar(f); renderProfAvatar(); markProfileDirty(profileDirty()); } catch (err) { toast(err.message); }
   };
+  ['profName', 'profStatus'].forEach((id) => $(id).addEventListener('input', () => { markProfileDirty(profileDirty()); if (id === 'profName' && !draftAvatar) renderProfAvatar(); }));
   $('profSave').onclick = () => {
     const name = $('profName').value.trim();
     if (!name) { $('profName').focus(); return; }
@@ -1002,10 +1016,89 @@
     saveMeta();
     checkAchievements();
     broadcastProfile();
-    toast('✓ Profil gespeichert');
-    show('viewList');
+    markProfileDirty(false);
+    toast('Profil gespeichert');
     render();
   };
+  $('profCopy').onclick = () => $('copyBtn').click();
+
+  // Darstellung
+  function applyTheme() {
+    if (settings.theme === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', settings.theme);
+  }
+  function renderTheme() {
+    $('themeSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.theme === settings.theme));
+  }
+  $('themeSeg').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => { settings.theme = b.dataset.theme; saveSettings(); applyTheme(); renderTheme(); };
+  });
+
+  // Allgemein
+  $('setNotify').onchange = (e) => {
+    settings.notify = e.target.checked; saveSettings();
+    if (settings.notify && Notification.permission === 'default') Notification.requestPermission();
+  };
+  $('setAutoUpdate').onchange = (e) => { settings.autoUpdate = e.target.checked; saveSettings(); };
+  $('setPin').onchange = async (e) => {
+    const pinned = await window.chatboxWindow.isPinned();
+    if (pinned !== e.target.checked) { const p = await window.chatboxWindow.togglePin(); $('pinBtn').classList.toggle('active', p); }
+  };
+  $('repoLink').onclick = () => window.whatsupApp.openRepo();
+
+  // Updates
+  const upd = { state: 'idle', latest: null, mode: 'dev', version: '' };
+  function renderUpdate() {
+    const btn = $('updateBtn'), st = $('updateStatus'), bar = $('updateBar');
+    $('appVersion').textContent = upd.version + (upd.mode === 'portable' ? ' (ohne Installation)' : upd.mode === 'dev' ? ' (Entwicklung)' : '');
+    bar.classList.toggle('hidden', upd.state !== 'downloading');
+    btn.disabled = upd.state === 'checking' || upd.state === 'downloading';
+    $('updateDot').classList.toggle('hidden', !(upd.state === 'available' || upd.state === 'ready'));
+    switch (upd.state) {
+      case 'checking': st.textContent = 'Suche nach Updates…'; btn.textContent = 'Suche…'; break;
+      case 'none': st.textContent = 'WhatsUp ist auf dem neuesten Stand.'; btn.textContent = 'Erneut suchen'; break;
+      case 'available':
+        st.textContent = `Version ${upd.latest} ist verfügbar.`;
+        btn.textContent = upd.mode === 'installed' ? 'Jetzt aktualisieren' : 'Download öffnen';
+        break;
+      case 'downloading': st.textContent = `Update wird geladen… ${upd.progress || 0} %`; btn.textContent = 'Wird geladen…'; break;
+      case 'ready': st.textContent = 'Update ist bereit. WhatsUp startet dafür kurz neu.'; btn.textContent = 'Neu starten und installieren'; break;
+      case 'error': st.textContent = 'Fehler: ' + upd.error; btn.textContent = 'Erneut versuchen'; break;
+      default: st.textContent = ''; btn.textContent = 'Nach Updates suchen';
+    }
+  }
+  async function checkForUpdate(silent) {
+    upd.state = 'checking'; renderUpdate();
+    try {
+      const r = await window.whatsupApp.checkUpdate();
+      upd.latest = r.latest;
+      upd.state = r.available ? 'available' : 'none';
+      if (r.available && silent) toast(`Update ${r.latest} verfügbar – siehe Einstellungen`);
+    } catch (e) {
+      upd.state = silent ? 'idle' : 'error';
+      upd.error = String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').slice(0, 120);
+    }
+    renderUpdate();
+  }
+  $('updateBtn').onclick = async () => {
+    if (upd.state === 'available') {
+      if (upd.mode !== 'installed') { window.whatsupApp.downloadUpdate(); return; }
+      upd.state = 'downloading'; upd.progress = 0; renderUpdate();
+      try { await window.whatsupApp.downloadUpdate(); upd.state = 'ready'; }
+      catch (e) { upd.state = 'error'; upd.error = String(e.message || e).slice(0, 120); }
+      renderUpdate();
+    } else if (upd.state === 'ready') {
+      $('updateStatus').textContent = 'Wird installiert…';
+      window.whatsupApp.installUpdate();
+    } else checkForUpdate(false);
+  };
+  window.whatsupApp.onUpdateProgress((p) => { upd.progress = p; if (upd.state === 'downloading') renderUpdate(); });
+  window.whatsupApp.onUpdateReady(() => { upd.state = 'ready'; renderUpdate(); });
+  window.whatsupApp.onUpdateError((m) => { if (upd.state === 'downloading') { upd.state = 'error'; upd.error = m.slice(0, 120); renderUpdate(); } });
+  window.whatsupApp.info().then((i) => {
+    upd.version = i.version; upd.mode = i.mode; renderUpdate();
+    if (settings.autoUpdate && i.mode !== 'dev') setTimeout(() => checkForUpdate(true), 4000);
+  });
 
   // ================= Events =================
   $('minBtn').onclick = () => window.chatboxWindow.minimize();
@@ -1013,7 +1106,8 @@
   $('pinBtn').onclick = async () => { const p = await window.chatboxWindow.togglePin(); $('pinBtn').classList.toggle('active', p); };
   $('backBtn').onclick = () => (view === 'viewChat' ? closeChat() : (show('viewList'), render()));
   $('trophyBtn').onclick = () => { show('viewAchievements'); renderAchievements(); };
-  $('meCardBtn').onclick = openProfile;
+  $('settingsBtn').onclick = openSettings;
+  $('meCardBtn').onclick = openSettings;
   $('newGroupBtn').onclick = openNewGroup;
   $('chatHead').onclick = openInfo;
   $('modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
@@ -1102,6 +1196,7 @@
     setInterval(connectAll, RETRY_MS);
   }
 
+  applyTheme();
   if (me) boot();
   else { show('viewSetup'); $('setupName').focus(); }
 })();
