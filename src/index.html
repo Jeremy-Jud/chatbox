@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:">
-  <title>Chatbox</title>
+  <title>WhatsUp</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="titlebar">
     <button id="backBtn" class="tb-btn hidden" title="Zurück">‹</button>
-    <div class="title"><span class="dot" id="netDot" title="Netzwerk"></span><span id="titleText">Chatbox</span></div>
+    <div class="title"><img src="assets/logo.png" class="tb-logo" alt=""><span id="titleText">WhatsUp</span><span class="dot" id="netDot" title="Netzwerk"></span></div>
     <div class="tb-actions">
       <button id="trophyBtn" class="tb-btn" title="Erfolge">🏆</button>
       <button id="pinBtn" class="tb-btn" title="Immer im Vordergrund">📌</button>
@@ -22,8 +22,8 @@
   <!-- Erster Start -->
   <section id="viewSetup" class="view hidden">
     <div class="setup">
-      <div class="logo">💬</div>
-      <h1>Willkommen bei Chatbox</h1>
+      <img src="assets/logo.png" class="logo" alt="WhatsUp-Logo">
+      <h1>Willkommen bei WhatsUp</h1>
       <p>Wie sollen dich deine Freunde sehen?</p>
       <input id="setupName" maxlength="24" placeholder="Dein Name" autocomplete="off">
       <button id="setupBtn" class="primary">Los geht's</button>

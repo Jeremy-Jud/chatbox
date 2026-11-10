@@ -8,6 +8,9 @@ const profileArg = process.argv.find((a) => a.startsWith('--profile='));
 if (profileArg) {
   const name = profileArg.split('=')[1].replace(/[^a-z0-9_-]/gi, '');
   if (name) app.setPath('userData', path.join(app.getPath('appData'), 'Chatbox-' + name));
+} else {
+  // Daten bleiben im bisherigen Ordner, damit Chats nach der Umbenennung in WhatsUp erhalten bleiben
+  app.setPath('userData', path.join(app.getPath('appData'), 'Chatbox'));
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -23,7 +26,8 @@ function createWindow() {
     frame: false,
     backgroundColor: '#14161c',
     show: process.env.CHATBOX_HIDDEN !== '1', // für automatische Tests
-    title: 'Chatbox',
+    title: 'WhatsUp',
+    icon: path.join(__dirname, 'src', 'assets', 'logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -72,7 +76,7 @@ ipcMain.on('win:flash', () => {
 });
 
 app.whenReady().then(() => {
-  app.setAppUserModelId('com.chatbox.app');
+  app.setAppUserModelId('com.whatsup.app');
   createWindow();
 });
 

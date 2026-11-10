@@ -5,8 +5,8 @@
   --panel3: #30354299;
   --text: #e8eaf0;
   --muted: #8a90a2;
-  --accent: #5b8cff;
-  --accent2: #4171e8;
+  --accent: #1a8cff;
+  --accent2: #0b74e0;
   --online: #3ecf8e;
   --offline: #5a6072;
   --danger: #ff5b6e;
@@ -93,7 +93,8 @@ button.danger:hover { background: #ff5b6e1a; }
 
 /* ---------- Setup ---------- */
 .setup { margin: auto; padding: 24px; text-align: center; display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 300px; }
-.setup .logo { font-size: 44px; }
+.setup .logo { width: 88px; height: 88px; align-self: center; filter: drop-shadow(0 6px 18px #1a8cff55); }
+.tb-logo { width: 18px; height: 18px; flex-shrink: 0; }
 .setup h1 { font-size: 18px; margin: 0; }
 .setup p { color: var(--muted); margin: 0; }
 

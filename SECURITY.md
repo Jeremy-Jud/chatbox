@@ -7,14 +7,14 @@
 | 1.x (neueste) | ✅ |
 | ältere | ❌ |
 
-Bitte nutze immer die [neueste Version](https://github.com/Jeremy-Jud/chatbox/releases/latest).
+Bitte nutze immer die [neueste Version](https://github.com/Jeremy-Jud/whatsup/releases/latest).
 
 ## Sicherheitslücke melden
 
 **Bitte melde Sicherheitslücken nicht als öffentliches Issue.**
 
 Nutze stattdessen die private Meldefunktion von GitHub:
-**[Sicherheitslücke melden](https://github.com/Jeremy-Jud/chatbox/security/advisories/new)**
+**[Sicherheitslücke melden](https://github.com/Jeremy-Jud/whatsup/security/advisories/new)**
 
 Bitte schreib dazu:
 - was das Problem ist und welche Auswirkungen es hat,
@@ -25,7 +25,7 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 
 ## Sicherheitsmodell
 
-**Was Chatbox schützt:**
+**Was WhatsUp schützt:**
 - Nachrichten werden über WebRTC (DTLS) verschlüsselt direkt zwischen den Rechnern übertragen.
 - Der PeerJS-Signalisierungsserver sieht nur Verbindungsdaten (Peer-IDs, IP-Adressen), aber keine Nachrichten.
 - Die Oberfläche läuft mit `contextIsolation`, `sandbox` und ohne `nodeIntegration`. Dazu kommen eine strenge Content Security Policy, gesperrte Navigation und ein Berechtigungsfilter.

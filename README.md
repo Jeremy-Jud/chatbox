@@ -1,14 +1,16 @@
 <div align="center">
 
-# 💬 Chatbox
+<img src="build/icon.png" width="110" alt="WhatsUp-Logo">
+
+# WhatsUp
 
 **Eine kleine Desktop-Chat-App. Freunde per Code adden und direkt chatten.**
 
 Ohne Konto, ohne Telefonnummer, ohne Server, der deine Nachrichten speichert.
 
-[![Download](https://img.shields.io/badge/Download-Chatbox.exe-5b8cff?style=for-the-badge&logo=windows)](https://github.com/Jeremy-Jud/chatbox/releases/latest/download/Chatbox.exe)
+[![Download](https://img.shields.io/badge/Download-WhatsUp.exe-5b8cff?style=for-the-badge&logo=windows)](https://github.com/Jeremy-Jud/whatsup/releases/latest/download/WhatsUp.exe)
 
-[![Release](https://img.shields.io/github/v/release/Jeremy-Jud/chatbox?label=Version)](https://github.com/Jeremy-Jud/chatbox/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Jeremy-Jud/whatsup?label=Version)](https://github.com/Jeremy-Jud/whatsup/releases/latest)
 [![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-green)](LICENSE)
 ![Plattform](https://img.shields.io/badge/Plattform-Windows-blue)
 ![Electron](https://img.shields.io/badge/Electron-45-47848f?logo=electron)
@@ -19,8 +21,8 @@ Ohne Konto, ohne Telefonnummer, ohne Server, der deine Nachrichten speichert.
 
 ## ⬇️ Download
 
-1. **[Chatbox.exe herunterladen](https://github.com/Jeremy-Jud/chatbox/releases/latest/download/Chatbox.exe)** (Windows 10/11, 64-Bit)
-2. Doppelklick auf `Chatbox.exe`. Es gibt keine Installation. Beim Start entpackt sich die App kurz, das kann etwa 15 Sekunden dauern.
+1. **[WhatsUp.exe herunterladen](https://github.com/Jeremy-Jud/whatsup/releases/latest/download/WhatsUp.exe)** (Windows 10/11, 64-Bit)
+2. Doppelklick auf `WhatsUp.exe`. Es gibt keine Installation. Beim Start entpackt sich die App kurz, das kann etwa 15 Sekunden dauern.
 3. Namen eingeben und fertig. Du bekommst deinen eigenen **6-stelligen Code**.
 
 > **„Der Computer wurde durch Windows geschützt“?**
@@ -28,7 +30,7 @@ Ohne Konto, ohne Telefonnummer, ohne Server, der deine Nachrichten speichert.
 > Klicke auf **„Weitere Informationen“** und dann auf **„Trotzdem ausführen“**.
 > Prüfe vorher am besten die [SHA-256-Prüfsumme](#-prüfsumme-checken) der Datei.
 
-Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/chatbox/releases).
+Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/whatsup/releases).
 
 ## ✨ Funktionen
 
@@ -48,7 +50,7 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/cha
 | 📬 **Warteschlange** | Nachrichten an Offline-Freunde werden automatisch zugestellt, sobald ihr beide online seid |
 | 💾 **Lokaler Verlauf** | Chats bleiben nur auf deinem PC gespeichert |
 
-## 🚀 So benutzt du Chatbox
+## 🚀 So benutzt du WhatsUp
 
 1. **Code teilen:** Oben steht dein Code. Mit **Kopieren** kannst du ihn einem Freund schicken.
 2. **Freund adden:** Den Code deines Freundes ins Feld eingeben und auf **Adden** klicken.
@@ -60,7 +62,7 @@ Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/cha
 6. **Erfolge:** Über 🏆 oben rechts siehst du alle Erfolge und deinen Fortschritt.
 7. **Infos & Entfernen:** Im Chat oben auf den Namen klicken. Dort kannst du Freunde entfernen oder Gruppen verwalten.
 
-> ℹ️ Weil es keinen zentralen Server gibt, müssen **beide** Chatbox geöffnet haben, damit Nachrichten ankommen.
+> ℹ️ Weil es keinen zentralen Server gibt, müssen **beide** WhatsUp geöffnet haben, damit Nachrichten ankommen.
 
 ## 🔒 Sicherheit & Datenschutz
 
@@ -85,21 +87,21 @@ Sicherheitslücke gefunden? Bitte lies die [Sicherheitsrichtlinie](SECURITY.md).
 So stellst du sicher, dass deine Datei nicht verändert wurde. Öffne PowerShell im Download-Ordner und gib ein:
 
 ```powershell
-Get-FileHash .\Chatbox.exe -Algorithm SHA256
+Get-FileHash .\WhatsUp.exe -Algorithm SHA256
 ```
 
-Das Ergebnis muss mit dem Wert übereinstimmen, der beim jeweiligen [Release](https://github.com/Jeremy-Jud/chatbox/releases) steht.
+Das Ergebnis muss mit dem Wert übereinstimmen, der beim jeweiligen [Release](https://github.com/Jeremy-Jud/whatsup/releases) steht.
 
 ## 🛠️ Selbst bauen
 
 Voraussetzung: [Node.js](https://nodejs.org) LTS
 
 ```bash
-git clone https://github.com/Jeremy-Jud/chatbox.git
-cd chatbox
+git clone https://github.com/Jeremy-Jud/whatsup.git
+cd whatsup
 npm install
 npm start          # App im Entwicklermodus starten
-npm run dist       # Chatbox.exe in den Ordner dist/ bauen
+npm run dist       # WhatsUp.exe in den Ordner dist/ bauen
 ```
 
 > Unter Windows PowerShell funktioniert `npm` manchmal nicht, weil die Skriptausführung gesperrt ist. Nimm dann `npm.cmd install` und `npm.cmd start`.
@@ -107,7 +109,7 @@ npm run dist       # Chatbox.exe in den Ordner dist/ bauen
 ## 📁 Projektaufbau
 
 ```
-chatbox/
+whatsup/
 ├── main.js          # Electron-Hauptprozess (Fenster, Sicherheit)
 ├── preload.js       # Sichere Brücke für Fenster-Buttons
 └── src/

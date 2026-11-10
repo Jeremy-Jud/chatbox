@@ -1,4 +1,4 @@
-/* Chatbox – Peer-to-Peer-Chat über WebRTC (PeerJS).
+/* WhatsUp – Peer-to-Peer-Chat über WebRTC (PeerJS).
  * Jeder Nutzer hat einen 6-stelligen Code = Peer-ID. Einzel- und Gruppenchats,
  * Bilder/GIFs, Emojis, Profilbilder und Erfolge. */
 (() => {
@@ -216,7 +216,7 @@
           const code = m[1].toUpperCase();
           delete connecting[code];
           if (pendingAdd === code) {
-            setStatus('Freund ist gerade nicht online. Ihr werdet verbunden, sobald er Chatbox öffnet.');
+            setStatus('Freund ist gerade nicht online. Ihr werdet verbunden, sobald dein Freund WhatsUp öffnet.');
             pendingAdd = null;
           }
         }
@@ -642,7 +642,7 @@
 
   let view = 'viewSetup';
   let activeChat = null;
-  const TITLES = { viewList: 'Chatbox', viewChat: 'Chatbox', viewProfile: 'Mein Profil', viewAchievements: 'Erfolge', viewSetup: 'Chatbox' };
+  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewProfile: 'Mein Profil', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp' };
 
   function show(v) {
     view = v;
@@ -930,7 +930,7 @@
     $('viewerImg').src = src;
     const ext = (/^data:image\/(\w+)/.exec(src) || [])[1] || 'png';
     $('viewerSave').href = src;
-    $('viewerSave').download = `chatbox-${new Date(m.ts).toISOString().slice(0, 10)}-${m.id.slice(0, 6)}.${ext === 'jpeg' ? 'jpg' : ext}`;
+    $('viewerSave').download = `whatsup-${new Date(m.ts).toISOString().slice(0, 10)}-${m.id.slice(0, 6)}.${ext === 'jpeg' ? 'jpg' : ext}`;
     $('viewer').classList.remove('hidden');
   }
   $('viewerClose').onclick = () => $('viewer').classList.add('hidden');
