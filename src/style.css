@@ -69,8 +69,13 @@ input {
   width: 100%; min-width: 0; background: var(--soft); color: var(--fg);
   border: 0; border-radius: 10px; padding: 9px 12px; font: inherit; outline: none; user-select: text;
 }
-input::placeholder { color: var(--muted); }
-input:focus { box-shadow: 0 0 0 1.5px var(--accent) inset; }
+textarea {
+  width: 100%; min-width: 0; background: var(--soft); color: var(--fg); resize: none;
+  border: 0; border-radius: 10px; padding: 9px 12px; font: inherit; outline: none; user-select: text;
+}
+input::placeholder, textarea::placeholder { color: var(--muted); }
+input:focus, textarea:focus { box-shadow: 0 0 0 1.5px var(--accent) inset; }
+.row.center { justify-content: center; }
 button.primary { background: var(--fg); color: var(--bg); border-radius: 10px; padding: 9px 16px; font-weight: 600; }
 button.primary:hover { opacity: .85; }
 button.ghost, .link { color: var(--accent); font-weight: 500; text-decoration: none; cursor: pointer; }

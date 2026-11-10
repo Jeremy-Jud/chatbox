@@ -177,6 +177,10 @@
     return {
       id: g.id, name: clean(g.name, 40) || 'Gruppe', owner: CODE_RE.test(g.owner) ? g.owner : members[0],
       members, names, updated: Number(g.updated) || 0,
+      // Ältere Versionen kennen Bild/Beschreibung nicht: undefined = „unverändert lassen“
+      avatar: 'avatar' in g ? validAvatar(g.avatar) : undefined,
+      desc: 'desc' in g ? clean(g.desc, 200) : undefined,
+      by: CODE_RE.test(g.by) && members.includes(g.by) ? g.by : null,
     };
   }
 
@@ -327,6 +331,8 @@
         const local = groups[g.id];
         if (local && g.updated <= local.updated) return;
         const added = local ? g.members.filter((c) => !local.members.includes(c)) : [];
+        if (g.avatar === undefined) g.avatar = local ? local.avatar || null : null;
+        if (g.desc === undefined) g.desc = local ? local.desc || '' : '';
         groups[g.id] = g;
         g.members.forEach((c) => { if (c !== me.code) { const ct = ensureContact(c, g.names[c]); if (/^Nutzer /.test(ct.name) && g.names[c]) ct.name = g.names[c]; } });
         if (!local) {
@@ -335,7 +341,11 @@
           toast(`👥 Neue Gruppe: ${g.name}`);
         } else {
           added.forEach((c) => systemMessage('g:' + g.id, `${nameOf(c)} ist der Gruppe beigetreten`));
-          if (local.name !== g.name) systemMessage('g:' + g.id, `Gruppe heißt jetzt „${g.name}“`);
+          const who = g.by && g.by !== me.code ? nameOf(g.by) : null;
+          const sys = (withWho, without) => systemMessage('g:' + g.id, who ? `${who} ${withWho}` : without);
+          if (local.name !== g.name) sys(`hat die Gruppe in „${g.name}“ umbenannt`, `Gruppe heißt jetzt „${g.name}“`);
+          if ((local.avatar || null) !== g.avatar) sys(g.avatar ? 'hat das Gruppenbild geändert' : 'hat das Gruppenbild entfernt', g.avatar ? 'Neues Gruppenbild' : 'Gruppenbild entfernt');
+          if ((local.desc || '') !== g.desc) sys(g.desc ? 'hat die Beschreibung geändert' : 'hat die Beschreibung entfernt', 'Beschreibung geändert');
         }
         saveMeta(); connectAll(); scheduleRender();
         break;
@@ -459,7 +469,7 @@
   function createGroup(name, members) {
     const g = {
       id: crypto.randomUUID(), name: clean(name, 40) || 'Gruppe', owner: me.code,
-      members: [me.code, ...members], names: {}, updated: Date.now(),
+      members: [me.code, ...members], names: {}, updated: Date.now(), avatar: null, desc: '', by: me.code,
     };
     groups[g.id] = g;
     systemMessage('g:' + g.id, 'Du hast die Gruppe erstellt');
@@ -472,18 +482,33 @@
   function addToGroup(g, codes) {
     codes.forEach((c) => { if (!g.members.includes(c)) { g.members.push(c); systemMessage('g:' + g.id, `${nameOf(c)} wurde hinzugefügt`); } });
     g.updated = Date.now();
+    g.by = me.code;
     broadcastGroup(g);
     saveMeta(); scheduleRender();
   }
 
-  function renameGroup(g, name) {
-    name = clean(name, 40);
-    if (!name || name === g.name) return;
-    g.name = name;
+  // Name, Beschreibung und Gruppenbild ändern (jedes Mitglied darf das)
+  function updateGroup(g, ch) {
+    const msgs = [];
+    if (ch.name !== undefined) {
+      const n = clean(ch.name, 40);
+      if (n && n !== g.name) { g.name = n; msgs.push(`Du hast die Gruppe in „${n}“ umbenannt`); }
+    }
+    if (ch.desc !== undefined) {
+      const d = clean(ch.desc, 200);
+      if (d !== (g.desc || '')) { g.desc = d; msgs.push(d ? 'Du hast die Beschreibung geändert' : 'Du hast die Beschreibung entfernt'); }
+    }
+    if (ch.avatar !== undefined && ch.avatar !== (g.avatar || null)) {
+      g.avatar = ch.avatar;
+      msgs.push(ch.avatar ? 'Du hast das Gruppenbild geändert' : 'Du hast das Gruppenbild entfernt');
+    }
+    if (!msgs.length) return false;
+    msgs.forEach((m) => systemMessage('g:' + g.id, m));
     g.updated = Date.now();
-    systemMessage('g:' + g.id, `Du hast die Gruppe in „${name}“ umbenannt`);
+    g.by = me.code;
     broadcastGroup(g);
     saveMeta(); scheduleRender();
+    return true;
   }
 
   function leaveGroup(g) {
@@ -704,7 +729,7 @@
   function chatAvatar(chatId, cls, withDot) {
     if (chatId.startsWith('g:')) {
       const g = groups[chatId.slice(2)];
-      return avatarEl(g ? g.name : '?', null, chatId, 'sq ' + (cls || ''));
+      return avatarEl(g ? g.name : '?', g && g.avatar, chatId, 'sq ' + (cls || ''));
     }
     const code = chatId.slice(2), c = contacts[code] || {};
     return avatarEl(c.name, c.avatar, code, cls, withDot ? isOnline(code) : null, c.frame);
@@ -791,7 +816,7 @@
       const g = groups[code];
       const on = others(g).filter(isOnline).length;
       $('chatName').textContent = g.name;
-      $('chatSub').textContent = `${g.members.length} Mitglieder · ${on} online`;
+      $('chatSub').textContent = `${g.members.length} Mitglieder · ${on} online` + (g.desc ? ' · ' + g.desc.replace(/\s+/g, ' ') : '');
     } else {
       const c = contacts[code];
       $('chatName').textContent = c.name;
@@ -960,16 +985,41 @@
     }
     const g = groups[code];
     openModal((box) => {
+      let draftAv = g.avatar || null;
       const head = el('div', 'info-head');
-      head.appendChild(avatarEl(g.name, null, activeChat, 'sq xl'));
-      const nameRow = el('div', 'row');
-      const nameIn = el('input');
-      nameIn.value = g.name; nameIn.maxLength = 40;
-      const save = el('button', 'ghost small', 'Umbenennen');
-      save.onclick = () => { renameGroup(g, nameIn.value); closeModal(); };
-      nameRow.append(nameIn, save);
-      head.appendChild(nameRow);
+      const avWrap = el('div', 'group-av');
+      const drawAv = () => avWrap.replaceChildren(avatarEl(nameIn.value || g.name, draftAv, activeChat, 'sq xl'));
+      head.appendChild(avWrap);
+      const avRow = el('div', 'row center');
+      const change = el('button', 'link', 'Bild ändern');
+      const remove = el('button', 'link muted-link', 'Entfernen');
+      change.type = remove.type = 'button';
+      avRow.append(change, remove);
+      head.appendChild(avRow);
       box.appendChild(head);
+
+      const nameField = el('label', 'field', 'Name');
+      const nameIn = el('input');
+      nameIn.value = g.name; nameIn.maxLength = 40; nameIn.id = 'groupNameIn';
+      nameField.appendChild(nameIn);
+      const descField = el('label', 'field', 'Beschreibung');
+      const descIn = el('textarea');
+      descIn.value = g.desc || ''; descIn.maxLength = 200; descIn.rows = 3; descIn.id = 'groupDescIn';
+      descIn.placeholder = 'Worum geht es in der Gruppe?';
+      descField.appendChild(descIn);
+      box.append(nameField, descField);
+      drawAv();
+
+      const input = $('groupAvatarInput');
+      change.onclick = () => input.click();
+      remove.onclick = () => { draftAv = null; drawAv(); refresh(); };
+      input.onchange = async (e) => {
+        const f = e.target.files[0];
+        e.target.value = '';
+        try { draftAv = await prepareAvatar(f); drawAv(); refresh(); } catch (err) { toast(err.message); }
+      };
+      remove.classList.toggle('hidden', !draftAv);
+
       box.appendChild(el('div', 'label', `${g.members.length} Mitglieder`));
       const ul = el('ul', 'members');
       [me.code, ...others(g)].forEach((c) => {
@@ -987,10 +1037,27 @@
         list = checkList(candidates);
         box.appendChild(list);
       }
-      box.appendChild(buttons(
+      const actions = buttons(
         ['Verlassen', 'danger', () => { if (confirm(`Gruppe „${g.name}“ verlassen? Der Verlauf wird gelöscht.`)) leaveGroup(g); }],
-        [list ? 'Hinzufügen' : 'Schließen', 'primary', () => { if (list && list.selected().length) addToGroup(g, list.selected()); closeModal(); }],
-      ));
+        ['Schließen', 'primary', () => {
+          if (!nameIn.value.trim()) { nameIn.focus(); return; }
+          updateGroup(g, { name: nameIn.value, desc: descIn.value, avatar: draftAv });
+          if (list && list.selected().length) addToGroup(g, list.selected());
+          closeModal();
+        }],
+      );
+      const mainBtn = actions.querySelector('.primary');
+      mainBtn.id = 'groupSaveBtn';
+      function refresh() {
+        const dirty = nameIn.value.trim() !== g.name || descIn.value.trim() !== (g.desc || '') ||
+          draftAv !== (g.avatar || null) || !!(list && list.selected().length);
+        mainBtn.textContent = dirty ? 'Speichern' : 'Schließen';
+        remove.classList.toggle('hidden', !draftAv);
+      }
+      nameIn.addEventListener('input', () => { refresh(); if (!draftAv) drawAv(); });
+      descIn.addEventListener('input', refresh);
+      if (list) list.addEventListener('change', refresh);
+      box.appendChild(actions);
     });
   }
 
