@@ -368,7 +368,10 @@
       if (activeChat !== chatId || !document.hasFocus()) {
         unread[chatId] = (unread[chatId] || 0) + 1;
         const title = gid ? `${groups[gid].name} – ${nameOf(from)}` : nameOf(from);
-        notify(title, preview(msg), { chatId, icon: contacts[from] && contacts[from].avatar });
+        notify(title, preview(msg), {
+          chatId, icon: contacts[from] && contacts[from].avatar,
+          replyPlaceholder: gid ? `Antwort an ${groups[gid].name}…` : `Antwort an ${nameOf(from)}…`,
+        });
       }
       saveMeta(); checkAchievements(); scheduleRender();
     }
@@ -597,6 +600,7 @@
       body: opts.chatId && !settings.preview ? 'Neue Nachricht' : String(body).slice(0, 200),
       icon: opts.icon || null,
       chatId: opts.chatId || null,
+      replyPlaceholder: opts.replyPlaceholder || null,
       silent: !settings.sound,
     });
   }
@@ -624,6 +628,15 @@
     if (!me) return;
     const ok = chatId.startsWith('g:') ? groups[chatId.slice(2)] : contacts[chatId.slice(2)];
     if (ok) openChat(chatId);
+  });
+  // Antwort direkt aus der Windows-Benachrichtigung
+  window.chatboxWindow.onNotificationReply((chatId, text) => {
+    if (!me || typeof chatId !== 'string' || typeof text !== 'string') return;
+    const exists = chatId.startsWith('g:') ? groups[chatId.slice(2)] : chatId.startsWith('u:') && contacts[chatId.slice(2)];
+    text = text.trim().slice(0, MAX_TEXT);
+    if (!exists || !text) return;
+    delete unread[chatId];
+    sendMessage(chatId, text, null);
   });
   window.chatboxWindow.onHidden(() => {
     if (settings.bgHintShown) return;

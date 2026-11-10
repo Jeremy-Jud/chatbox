@@ -5,6 +5,12 @@ const fs = require('fs');
 const REPO = 'Jeremy-Jud/whatsup';
 const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
 const ICON_PATH = path.join(__dirname, 'src', 'assets', 'logo.png');
+const APP_ID = 'com.whatsup.app';
+// Feste Kennung, über die Windows Antworten aus Benachrichtigungen an WhatsUp zurückgibt
+const TOAST_CLSID = '{7B3E6C1A-5D2F-4E8B-9A41-2C6F0D8E3B57}';
+if (process.platform === 'win32') {
+  try { app.setToastActivatorCLSID(TOAST_CLSID); } catch (e) { console.warn('Toast-CLSID:', e); }
+}
 
 let win = null;
 let tray = null;
@@ -107,11 +113,15 @@ function createTray() {
 function ensureShortcuts() {
   if (process.platform !== 'win32' || !app.isPackaged || IS_PORTABLE) return;
   const exe = process.execPath;
-  const opts = { target: exe, cwd: path.dirname(exe), appUserModelId: 'com.whatsup.app', description: 'WhatsUp', icon: exe, iconIndex: 0 };
+  const opts = { target: exe, cwd: path.dirname(exe), appUserModelId: APP_ID, toastActivatorClsid: TOAST_CLSID, description: 'WhatsUp', icon: exe, iconIndex: 0 };
   const startMenu = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'WhatsUp.lnk');
   try {
     let ok = false;
-    try { ok = shell.readShortcutLink(startMenu).target.toLowerCase() === exe.toLowerCase(); } catch {}
+    try {
+      const l = shell.readShortcutLink(startMenu);
+      ok = l.target.toLowerCase() === exe.toLowerCase() && l.appUserModelId === APP_ID &&
+        String(l.toastActivatorClsid || '').toUpperCase().replace(/[{}]/g, '') === TOAST_CLSID.replace(/[{}]/g, '');
+    } catch {}
     if (!ok) shell.writeShortcutLink(startMenu, 'create', opts);
   } catch (e) { console.warn('Startmenü-Verknüpfung:', e); }
   // Desktop-Verknüpfung nur einmal anlegen – löscht man sie, bleibt sie weg
@@ -151,24 +161,36 @@ ipcMain.on('notify', (_e, n) => {
     const av = nativeImage.createFromDataURL(n.icon);
     if (!av.isEmpty()) icon = av;
   }
+  const chatId = n.chatId ? String(n.chatId).slice(0, 80) : null;
   const note = new Notification({
     title: String(n.title || 'WhatsUp').slice(0, 80),
     body: String(n.body || '').slice(0, 200),
     icon,
     silent: !!n.silent,
+    // Direkt aus der Benachrichtigung antworten (wie bei Teams)
+    ...(chatId ? { hasReply: true, replyPlaceholder: String(n.replyPlaceholder || 'Antworten…').slice(0, 60) } : {}),
   });
   liveNotifications.add(note);
   const drop = () => liveNotifications.delete(note);
   note.on('click', () => {
-    drop();
     showWindow();
-    if (win && n.chatId) win.webContents.send('notification:click', String(n.chatId));
+    if (win && chatId) win.webContents.send('notification:click', chatId);
   });
-  note.on('close', drop);
+  note.on('reply', (details, legacyReply) => {
+    const text = String((details && details.reply) ?? legacyReply ?? '').trim().slice(0, 4000);
+    if (win && chatId && text) win.webContents.send('notification:reply', chatId, text);
+    drop();
+  });
+  // Bleibt im Benachrichtigungscenter, daher Referenz länger halten
+  setTimeout(drop, 6 * 60 * 60 * 1000);
   note.show();
   if (win && !win.isFocused()) win.flashFrame(true);
-  setTimeout(drop, 10 * 60 * 1000);
 });
+
+// Testmodus: Antwort aus einer Benachrichtigung simulieren
+if (TEST_MODE) {
+  ipcMain.on('test:reply', (_e, chatId, text) => win && win.webContents.send('notification:reply', chatId, text));
+}
 
 // Roter Zähler am Taskleisten-Icon
 ipcMain.on('badge', (_e, count, dataUrl) => {
@@ -245,8 +267,12 @@ ipcMain.on('update:install', () => {
 ipcMain.on('open:repo', () => shell.openExternal(`https://github.com/${REPO}`));
 
 app.whenReady().then(() => {
-  app.setAppUserModelId('com.whatsup.app');
+  app.setAppUserModelId(APP_ID);
   ensureShortcuts();
+  // Klick auf eine ältere Benachrichtigung (z. B. nach Neustart aus dem Benachrichtigungscenter)
+  if (process.platform === 'win32' && typeof Notification.handleActivation === 'function') {
+    Notification.handleActivation((d) => { if (d && d.type === 'click') showWindow(); });
+  }
   createWindow();
   createTray();
 });
