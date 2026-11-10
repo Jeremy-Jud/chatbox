@@ -22,9 +22,11 @@ window.CHATBOX_ACHIEVEMENTS = [
   ['status1', '🌅', 'Mein Tag', 'Teile deinen ersten Status', 'statuses', 1],
   ['call1', '📞', 'Hallo?', 'Führe deinen ersten Anruf', 'calls', 1],
   ['voice1', '🎤', 'Gut zu hören', 'Schicke deine erste Sprachnachricht', 'voices', 1],
+  ['fire3', '🔥', 'Feuer gefangen', 'Halte mit jemandem einen 3-Tage-Streak', 'maxFire', 3],
+  ['fire30', '🌋', 'Unaufhaltsam', 'Halte mit jemandem einen 30-Tage-Streak', 'maxFire', 30],
   ['night', '🦉', 'Nachteule', 'Schreibe zwischen 0 und 4 Uhr nachts', 'night', 1],
   ['early', '🐦', 'Frühaufsteher', 'Schreibe zwischen 5 und 7 Uhr morgens', 'early', 1],
   ['streak3', '🔥', 'Dranbleiben', 'Chatte 3 Tage am Stück', 'maxStreak', 3],
   ['streak7', '☄️', 'Wochenserie', 'Chatte 7 Tage am Stück', 'maxStreak', 7],
-  ['all', '🏆', 'Komplettist', 'Schalte alle anderen Erfolge frei', 'unlockedOthers', 26],
+  ['all', '🏆', 'Komplettist', 'Schalte alle anderen Erfolge frei', 'unlockedOthers', 28],
 ].map(([id, icon, title, desc, stat, goal]) => ({ id, icon, title, desc, stat, goal }));

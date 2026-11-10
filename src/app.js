@@ -86,7 +86,7 @@
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
   const stats = Object.assign({
     sent: 0, groupSent: 0, images: 0, gifs: 0, emojis: 0, received: 0, groupsCreated: 0,
-    avatarSet: 0, statuses: 0, calls: 0, voices: 0, night: 0, early: 0, days: 0, streak: 0, maxStreak: 0, lastDay: '',
+    avatarSet: 0, statuses: 0, calls: 0, voices: 0, maxFire: 0, night: 0, early: 0, days: 0, streak: 0, maxStreak: 0, lastDay: '',
   }, store.load('stats', {}));
   let chats = {};                                  // chatId -> [Nachricht]
   const mediaCache = new Map();
@@ -450,6 +450,7 @@
       if (media) { msg.media = mediaMeta(media); putMedia(chatId, id, media.data); }
       list.push(msg);
       saveChat(chatId);
+      if (!gid) fire.mark(from, 'them', msg.ts);
       stats.received++;
       if (activeChat !== chatId || !document.hasFocus()) {
         unread[chatId] = (unread[chatId] || 0) + 1;
@@ -548,6 +549,7 @@
     if (media) { msg.media = mediaMeta(media); await putMedia(chatId, msg.id, media.data); }
     (chats[chatId] = chats[chatId] || []).push(msg);
     saveChat(chatId);
+    if (chatId.startsWith('u:')) fire.mark(chatId.slice(2), 'me', msg.ts);
     to.forEach((code) => {
       if (isOnline(code)) enqueue(code, () => deliverTo(chatId, msg, code));
       else { connectTo(code); relayLater(chatId, msg, code); }
@@ -962,7 +964,10 @@
       const li = el('li');
       li.appendChild(chatAvatar(chatId, '', !isGroup));
       const meta = el('div', 'fmeta');
-      meta.appendChild(el('div', 'fname', isGroup ? groups[code].name : nameOf(code)));
+      const fn = el('div', 'fname', isGroup ? groups[code].name : nameOf(code));
+      const fb = isGroup ? '' : fire.badge(code);
+      if (fb) fn.appendChild(el('span', 'fire', fb));
+      meta.appendChild(fn);
       const last = lastMsg(chatId);
       let sub;
       if (last) sub = last.sys ? last.text : (last.from === me.code ? 'Du: ' : isGroup ? nameOf(last.from) + ': ' : '') + preview(last);
@@ -992,7 +997,11 @@
     } else {
       const c = contacts[code];
       $('chatName').textContent = c.name;
-      $('chatSub').textContent = (isOnline(code) ? 'online' : 'offline') + (c.status ? ' · ' + c.status : '');
+      const fb = fire.badge(code);
+      if (fb) $('chatName').appendChild(el('span', 'fire', fb));
+      const fh = fire.hint(code);
+      $('chatSub').textContent = [isOnline(code) ? 'online' : 'offline', fh, c.status].filter(Boolean).join(' · ');
+      $('chatSub').title = fh ? 'Streak: Schreibt euch jeden Tag beide mindestens eine Nachricht, sonst ist er weg.' : '';
     }
 
     const box = $('messages');
@@ -1693,6 +1702,89 @@
   window.addEventListener('focus', () => {
     if (activeChat && unread[activeChat]) { delete unread[activeChat]; saveMeta(); scheduleRender(); }
   });
+
+  // ================= Streaks (wie bei Snapchat) =================
+  // Ein Tag zählt, wenn ihr euch im Einzelchat BEIDE mindestens eine Nachricht geschickt habt
+  // (Text, Bild, GIF, Sprachnachricht, Sticker). Fehlt ein ganzer Tag, ist der Streak weg.
+  // Beide Geräte rechnen unabhängig aus denselben Nachrichten – es braucht keinen Server.
+  const fire = (() => {
+    const MILESTONES = [3, 7, 10, 30, 50, 100, 200, 365, 500, 1000];
+    const dayNum = (ts) => { const d = new Date(ts); return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5); };
+    const today = () => dayNum(Date.now());
+    const hoursLeft = () => { const d = new Date(); return (new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1) - d) / 36e5; };
+    const rec = (code) => { const c = contacts[code]; if (!c) return null; return (c.fire = c.fire || { n: 0, last: 0, days: {} }); };
+
+    // Aktueller Streak (0, wenn gestern und heute nichts geschafft wurde)
+    function current(code) {
+      const f = contacts[code] && contacts[code].fire;
+      return f && f.n && f.last >= today() - 1 ? f.n : 0;
+    }
+    const todayBits = (code) => { const f = contacts[code] && contacts[code].fire; return (f && f.days && f.days[today()]) || 0; };
+    // Heute noch nicht geschafft, aber gestern schon -> läuft heute um Mitternacht ab
+    const atRisk = (code) => current(code) > 0 && contacts[code].fire.last === today() - 1;
+
+    function mark(code, who, ts) {
+      const f = rec(code);
+      if (!f) return;
+      const D = dayNum(ts);
+      if (D < today() - 2 || D > today()) return;
+      const bits = f.days[D] || 0;
+      const nb = bits | (who === 'me' ? 1 : 2);
+      if (nb === bits) return;
+      f.days[D] = nb;
+      Object.keys(f.days).forEach((k) => { if (Number(k) < today() - 3) delete f.days[k]; });
+      if (nb === 3) complete(code, f, D);
+      saveMeta(); scheduleRender();
+    }
+    function complete(code, f, D) {
+      if (D === f.last) return;
+      if (f.n && D === f.last + 1) { f.n++; f.last = D; }
+      else if (f.n && D < f.last) { if (D === f.last - f.n) f.n++; else return; } // verspätete Nachricht von gestern
+      else { f.n = 1; f.last = D; }
+      f.lostShown = 0;
+      stats.maxFire = Math.max(stats.maxFire || 0, f.n);
+      if (MILESTONES.includes(f.n)) toast(`🔥 ${f.n} Tage Streak mit ${nameOf(code)}!`, true);
+      checkAchievements();
+    }
+
+    // Anzeige hinter dem Namen: 🔥12, kurz vor Ablauf 🔥12⏳
+    function badge(code) {
+      const n = current(code);
+      if (!n) return '';
+      return '🔥' + n + (atRisk(code) && hoursLeft() < 4 ? '⏳' : '');
+    }
+    // Text unter dem Namen im Chat
+    function hint(code) {
+      const n = current(code), bits = todayBits(code);
+      const missing = !(bits & 1) && !(bits & 2) ? 'ihr beide' : !(bits & 1) ? 'du' : nameOf(code);
+      if (bits === 3) return n ? `🔥 ${n} ${n === 1 ? 'Tag' : 'Tage'} · heute geschafft` : '';
+      if (n) {
+        const h = Math.floor(hoursLeft());
+        return `🔥 ${n} · heute fehlt noch: ${missing}` + (atRisk(code) && h < 4 ? ` (noch ${h < 1 ? 'unter 1' : h} Std.)` : '');
+      }
+      return bits ? (missing === 'du' ? '🔥 Streak startet, wenn du heute auch schreibst' : `🔥 Streak startet, wenn ${missing} heute auch schreibt`) : '';
+    }
+
+    // Verlorene Streaks melden und kurz vor Mitternacht erinnern
+    function tick() {
+      for (const code of friendCodes()) {
+        const f = contacts[code].fire;
+        if (!f || !f.n) continue;
+        if (f.n >= 3 && f.last < today() - 1 && f.lostShown !== f.last) {
+          f.lostShown = f.last;
+          toast(`💔 Streak mit ${nameOf(code)} verloren (${f.n} Tage)`);
+          saveMeta();
+        }
+        if (f.n >= 3 && atRisk(code) && hoursLeft() < 4 && f.reminded !== today()) {
+          f.reminded = today();
+          notify(nameOf(code), `⏳ Euer ${f.n}-Tage-Streak läuft heute ab! Schreib noch was.`, { chatId: 'u:' + code, icon: contacts[code].avatar });
+          saveMeta();
+        }
+      }
+      scheduleRender();
+    }
+    return { mark, badge, hint, current, tick };
+  })();
 
   // ================= Sticker (nur für einen bestimmten Nutzer) =================
   // Nur STICKER_OWNER kann Sticker erstellen, speichern und senden. Alle anderen sehen sie nur:
@@ -3219,6 +3311,8 @@
     show('viewList');
     stories.prune();
     setInterval(() => stories.prune(), 5 * 60 * 1000);
+    setTimeout(() => fire.tick(), 3000);
+    setInterval(() => fire.tick(), 10 * 60 * 1000);
     checkAchievements();
     render();
     startPeer();
