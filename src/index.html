@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:; media-src 'self' data: blob:">
   <title>WhatsUp</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -32,6 +32,8 @@
       <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M15 10V6.5a3 3 0 0 0-5.8-1M9 9v2a3 3 0 0 0 4.6 2.5M5.5 11a6.5 6.5 0 0 0 10.6 5M18.5 11a6.4 6.4 0 0 1-.6 2.7M12 17.5v3M4 4l16 16"/></symbol>
       <symbol id="i-video-off" viewBox="0 0 24 24"><path d="M15.5 13.5l5 3v-9l-5 3M10 6.5h3a2.5 2.5 0 0 1 2.5 2.5v3M15.5 16a2.5 2.5 0 0 1-2.5 1.5H5.5A2.5 2.5 0 0 1 3 15V9a2.5 2.5 0 0 1 2-2.4M3 3l18 18"/></symbol>
       <symbol id="i-flip" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><path d="M9 12a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14.5 8.3v1.9h-1.9M9.5 16.7v-1.9h1.9"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></symbol>
     </defs>
   </svg>
 
@@ -103,7 +105,16 @@
       <button type="button" id="emojiBtn" class="ic" title="Emojis"><svg><use href="#i-smile"/></svg></button>
       <button type="button" id="attachBtn" class="ic" title="Bild oder GIF"><svg><use href="#i-clip"/></svg></button>
       <input id="msgInput" placeholder="Nachricht" autocomplete="off" maxlength="4000">
-      <button class="send" type="submit" title="Senden"><svg><use href="#i-send"/></svg></button>
+      <button type="button" id="micBtn" class="send mic" title="Sprachnachricht aufnehmen"><svg><use href="#i-mic"/></svg></button>
+      <button class="send" id="sendBtn" type="submit" title="Senden"><svg><use href="#i-send"/></svg></button>
+      <!-- Aufnahme läuft -->
+      <div id="recBar" class="recbar hidden">
+        <button type="button" id="recCancel" class="ic" title="Verwerfen"><svg><use href="#i-trash"/></svg></button>
+        <span class="rec-dot"></span>
+        <span id="recTime" class="rec-time">0:00</span>
+        <canvas id="recWave" class="rec-wave" width="300" height="40"></canvas>
+        <button type="button" id="recSend" class="send" title="Sprachnachricht senden"><svg><use href="#i-send"/></svg></button>
+      </div>
     </form>
     <div id="dropHint" class="drop-hint hidden">Bild hier ablegen</div>
   </section>
