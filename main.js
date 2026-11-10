@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, net, nativeTheme, Notification, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 const REPO = 'Jeremy-Jud/whatsup';
 const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
@@ -98,6 +99,30 @@ function createTray() {
     { label: 'Beenden', click: () => { quitting = true; app.quit(); } },
   ]));
   tray.on('click', showWindow);
+}
+
+// Verknüpfungen sicherstellen (installierte Version).
+// Stille Updates des Installers können sie entfernen. Ohne Startmenü-Eintrag mit
+// App-ID ordnet Windows Benachrichtigungen und Neustarts nicht mehr richtig zu.
+function ensureShortcuts() {
+  if (process.platform !== 'win32' || !app.isPackaged || IS_PORTABLE) return;
+  const exe = process.execPath;
+  const opts = { target: exe, cwd: path.dirname(exe), appUserModelId: 'com.whatsup.app', description: 'WhatsUp', icon: exe, iconIndex: 0 };
+  const startMenu = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'WhatsUp.lnk');
+  try {
+    let ok = false;
+    try { ok = shell.readShortcutLink(startMenu).target.toLowerCase() === exe.toLowerCase(); } catch {}
+    if (!ok) shell.writeShortcutLink(startMenu, 'create', opts);
+  } catch (e) { console.warn('Startmenü-Verknüpfung:', e); }
+  // Desktop-Verknüpfung nur einmal anlegen – löscht man sie, bleibt sie weg
+  const flag = path.join(app.getPath('userData'), 'desktop-shortcut-created');
+  if (!fs.existsSync(flag)) {
+    try {
+      const desktop = path.join(app.getPath('desktop'), 'WhatsUp.lnk');
+      if (!fs.existsSync(desktop)) shell.writeShortcutLink(desktop, 'create', opts);
+      fs.writeFileSync(flag, '1');
+    } catch (e) { console.warn('Desktop-Verknüpfung:', e); }
+  }
 }
 
 app.on('second-instance', showWindow);
@@ -221,6 +246,7 @@ ipcMain.on('open:repo', () => shell.openExternal(`https://github.com/${REPO}`));
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.whatsup.app');
+  ensureShortcuts();
   createWindow();
   createTray();
 });
