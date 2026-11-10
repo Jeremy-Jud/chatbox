@@ -1,0 +1,17 @@
+# WhatsUp Briefkasten-Server (Cloudflare Worker + Durable Objects, kostenlose Stufe)
+name = "whatsup-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "MAILBOX"
+class_name = "Mailbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Mailbox"]
+
+[vars]
+# Absender-Angabe für Web-Push (VAPID)
+VAPID_SUBJECT = "https://github.com/Jeremy-Jud/whatsup"
+# Geheime Werte (nicht hier!): VAPID_PUBLIC, VAPID_PRIVATE  ->  wrangler secret put …

@@ -24,6 +24,40 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
+// Push vom Briefkasten-Server: Es liegt eine Nachricht bereit (Inhalt bleibt verschlüsselt auf dem Server).
+// iPhone/iPad verlangen zu jedem Push eine sichtbare Benachrichtigung.
+function pushName(code) {
+  return new Promise((resolve) => {
+    try {
+      const r = indexedDB.open('chatbox');
+      r.onerror = () => resolve(null);
+      r.onsuccess = () => {
+        const d = r.result;
+        if (!d.objectStoreNames.contains('keys')) { d.close(); resolve(null); return; }
+        const q = d.transaction('keys', 'readonly').objectStore('keys').get('pushNames');
+        q.onsuccess = () => { d.close(); resolve((q.result && q.result[code]) || null); };
+        q.onerror = () => { d.close(); resolve(null); };
+      };
+    } catch { resolve(null); }
+  });
+}
+self.addEventListener('push', (e) => {
+  let from = null;
+  try { from = e.data ? e.data.json().from : null; } catch {}
+  e.waitUntil((async () => {
+    const name = from ? await pushName(from) : null;
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    list.forEach((c) => c.postMessage({ type: 'relay-poll' })); // offene App holt sofort ab
+    await self.registration.showNotification(name || 'WhatsUp', {
+      body: name ? 'Neue Nachricht' : 'Du hast eine neue Nachricht',
+      icon: 'icon-192.png',
+      badge: 'icon-192.png',
+      tag: from ? 'relay-' + from : 'relay',
+      data: { chatId: from ? 'u:' + from : null },
+    });
+  })());
+});
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const chatId = e.notification.data && e.notification.data.chatId;

@@ -28,6 +28,9 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 **Was WhatsUp schützt:**
 - Nachrichten werden über WebRTC (DTLS) verschlüsselt direkt zwischen den Rechnern übertragen.
 - Der PeerJS-Signalisierungsserver sieht nur Verbindungsdaten (Peer-IDs, IP-Adressen), aber keine Nachrichten.
+- **Briefkasten-Server (Offline-Zustellung, `relay/`):** Jedes Gerät erzeugt ECDSA- und ECDH-Schlüssel (P-256), die privaten Schlüssel sind nicht exportierbar. Nachrichten werden mit einem Einmal-ECDH-Schlüssel, HKDF und AES-256-GCM verschlüsselt und vom Absender per ECDSA signiert. Der Empfänger prüft die Signatur, der Server kann Inhalte weder lesen noch fälschen.
+- Beim Server ist zu jedem Code der Schlüssel hinterlegt (beim ersten Kontakt, danach unveränderbar). Senden, Abholen, Löschen und Push-Anmeldung erfordern eine frische Signatur (max. 10 Minuten alt). Pro Absender gilt ein Mengenlimit, pro Briefkasten eine Größenbegrenzung.
+- Web-Push (RFC 8291/8292) enthält nur den Absender-Code, keinen Nachrichteninhalt.
 - Die Oberfläche läuft mit `contextIsolation`, `sandbox` und ohne `nodeIntegration`. Dazu kommen eine strenge Content Security Policy, gesperrte Navigation und ein Berechtigungsfilter.
 - Alle empfangenen Texte werden als reiner Text angezeigt (kein HTML), was XSS verhindert.
 
@@ -39,4 +42,5 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 - Es gibt keine Prüfung, dass ein Gerät dauerhaft derselben Person gehört (kein Schlüssel-Fingerprint).
 - Chatpartner sehen bei einer direkten Verbindung gegenseitig ihre IP-Adresse.
 - Der lokale Chatverlauf wird unverschlüsselt im Benutzerprofil gespeichert.
+- Der Briefkasten-Server sieht Metadaten: Absender- und Empfänger-Code, Zeitpunkt, Größe und IP-Adressen. Schlüssel werden beim ersten Kontakt ohne zusätzliche Bestätigung übernommen („trust on first use“). Ein Server, der von Anfang an bösartig ist, könnte also einen falschen Schlüssel ausliefern, bevor sich zwei Geräte direkt verbunden haben.
 - Die `.exe` ist nicht code-signiert. Prüfe die SHA-256-Prüfsumme aus dem Release.

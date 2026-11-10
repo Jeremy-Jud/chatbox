@@ -1,0 +1,16 @@
+{
+  "name": "whatsup-relay",
+  "private": true,
+  "description": "Briefkasten-Server für WhatsUp: speichert Ende-zu-Ende-verschlüsselte Nachrichten, bis der Empfänger online ist.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.160.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261110.1": true
+  }
+}

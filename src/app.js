@@ -32,8 +32,11 @@
   const db = (() => {
     let dbp;
     const open = () => dbp || (dbp = new Promise((res, rej) => {
-      const r = indexedDB.open('chatbox', 1);
-      r.onupgradeneeded = () => { r.result.createObjectStore('chats'); r.result.createObjectStore('media'); };
+      const r = indexedDB.open('chatbox', 2);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        ['chats', 'media', 'keys'].forEach((s) => { if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); });
+      };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     }));
@@ -74,7 +77,7 @@
   let recentEmojis = store.load('recentEmojis', []);
   const settings = Object.assign({
     theme: 'system', notify: true, sound: true, preview: true, autoUpdate: true,
-    runInBackground: true, openAtLogin: false, bgHintShown: false,
+    runInBackground: true, openAtLogin: false, bgHintShown: false, relay: true,
   }, store.load('settings', {}));
   const saveSettings = () => store.save('settings', settings);
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
@@ -254,8 +257,9 @@
           const code = m[1].toUpperCase();
           delete connecting[code];
           if (pendingAdd === code) {
-            setStatus('Freund ist gerade nicht online. Ihr werdet verbunden, sobald dein Freund WhatsUp öffnet.');
-            pendingAdd = null;
+            // Mit Briefkasten-Server geht die Anfrage gleich darüber raus (pendingAdd bleibt für den Hinweis)
+            if (relay.canSend(code)) setStatus('Dein Freund ist offline. Anfrage wird über den Server zugestellt…');
+            else { setStatus('Freund ist gerade nicht online. Ihr werdet verbunden, sobald dein Freund WhatsUp öffnet.'); pendingAdd = null; }
           }
         }
         return;
@@ -305,6 +309,7 @@
     return {
       type: 'hello', v: PROTO, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null,
       badges: Object.keys(unlocked).length, ctx: isFriend(code) ? 'friend' : 'group',
+      keys: relay.publicKeys(),
     };
   }
 
@@ -312,7 +317,16 @@
     if (!isOnline(code)) return false;
     try { conns[code].send(data); return true; } catch { return false; }
   }
-  function broadcastProfile() { Object.keys(conns).forEach((c) => sendTo(c, helloPayload(c))); }
+  // Direkt senden, sonst über den Briefkasten-Server (wenn der andere offline ist)
+  function sendData(code, data) {
+    if (sendTo(code, data)) return true;
+    relay.send(code, data).catch(() => {});
+    return false;
+  }
+  function broadcastProfile() {
+    const targets = new Set([...friendCodes(), ...Object.keys(conns)]);
+    targets.forEach((c) => sendData(c, helloPayload(c)));
+  }
 
   function handleData(code, data) {
     if (!data || typeof data !== 'object') return;
@@ -323,6 +337,8 @@
         c.status = clean(data.status, 80);
         c.avatar = validAvatar(data.avatar);
         c.frame = validFrame(data.frame);
+        relay.pinKeys(code, data.keys);
+        relay.saveNames();
         c.badges = Math.max(0, Math.min(999, Number(data.badges) || 0));
         const oldV = c.v || 1;
         c.v = Math.max(1, Math.min(99, Number(data.v) || 1));
@@ -418,7 +434,7 @@
       }
       saveMeta(); checkAchievements(); scheduleRender();
     }
-    sendTo(from, gid ? { type: 'ack', id, gid } : { type: 'ack', id });
+    sendData(from, gid ? { type: 'ack', id, gid } : { type: 'ack', id });
   }
 
   function recipientsOf(chatId) {
@@ -432,8 +448,10 @@
   }
 
   const oldVersionWarned = new Set();
-  async function deliverTo(chatId, msg, code) {
-    if (!isOnline(code)) return;
+  async function deliverTo(chatId, msg, code, viaRelay = false) {
+    if (msg.deliveredTo.includes(code)) return;
+    const useRelay = viaRelay || !isOnline(code);
+    if (useRelay && (!relay.canSend(code) || (msg.relayedTo || []).includes(code))) return;
     const wire = { id: msg.id, text: msg.text, ts: msg.ts };
     if (msg.media) {
       const data = await getMedia(chatId, msg.id);
@@ -447,13 +465,46 @@
       wire.media = { kind: msg.media.kind, w: msg.media.w, h: msg.media.h, data };
     }
     if (chatId.startsWith('g:')) { wire.type = 'gmsg'; wire.gid = chatId.slice(2); } else wire.type = 'msg';
-    if (sendTo(code, wire) && !msg.sentTo.includes(code)) { msg.sentTo.push(code); saveChat(chatId); scheduleRender(); }
+    if (!useRelay && isOnline(code)) {
+      if (sendTo(code, wire)) {
+        if (!msg.sentTo.includes(code)) { msg.sentTo.push(code); saveChat(chatId); scheduleRender(); }
+        // Keine Bestätigung? Verbindung war wohl tot (z. B. PC aus) -> zusätzlich in den Briefkasten.
+        // Wartezeit: 15 s + Übertragungszeit bei ~150 KB/s für Bilder/GIFs
+        const waitMs = 15000 + (wire.media ? Math.round(wire.media.data.length / 150) : 0);
+        setTimeout(() => {
+          if (!msg.deliveredTo.includes(code) && !(msg.relayedTo || []).includes(code)) enqueue(code, () => deliverTo(chatId, msg, code, true));
+        }, waitMs);
+      }
+      return;
+    }
+    // Empfänger offline: verschlüsselt in seinen Briefkasten legen
+    if (await relay.send(code, wire)) {
+      msg.relayedTo = [...new Set([...(msg.relayedTo || []), code])];
+      if (!msg.sentTo.includes(code)) msg.sentTo.push(code);
+      saveChat(chatId); scheduleRender();
+    }
+  }
+
+  // Nachrichten an Offline-Empfänger nach kurzer Wartezeit über den Server schicken
+  // (falls die direkte Verbindung doch noch klappt, geht es direkt)
+  function relayLater(chatId, msg, code, ms = 4000) {
+    setTimeout(() => { if (!isOnline(code)) enqueue(code, () => deliverTo(chatId, msg, code)); }, ms);
+  }
+  function relayPending() {
+    for (const [chatId, list] of Object.entries(chats)) {
+      for (const m of list) {
+        if (m.from !== me.code || !m.to) continue;
+        m.to.forEach((code) => {
+          if (!isOnline(code) && !m.deliveredTo.includes(code) && !(m.relayedTo || []).includes(code)) enqueue(code, () => deliverTo(chatId, m, code));
+        });
+      }
+    }
   }
 
   function flushPending(code) {
     for (const [chatId, list] of Object.entries(chats)) {
       for (const m of list) {
-        if (m.from === me.code && m.to && m.to.includes(code) && !m.deliveredTo.includes(code)) {
+        if (m.from === me.code && m.to && m.to.includes(code) && !m.deliveredTo.includes(code) && !(m.relayedTo || []).includes(code)) {
           enqueue(code, () => deliverTo(chatId, m, code));
         }
       }
@@ -466,7 +517,10 @@
     if (media) { msg.media = { kind: media.kind, w: media.w, h: media.h }; await putMedia(chatId, msg.id, media.data); }
     (chats[chatId] = chats[chatId] || []).push(msg);
     saveChat(chatId);
-    to.forEach((code) => (isOnline(code) ? enqueue(code, () => deliverTo(chatId, msg, code)) : connectTo(code)));
+    to.forEach((code) => {
+      if (isOnline(code)) enqueue(code, () => deliverTo(chatId, msg, code));
+      else { connectTo(code); relayLater(chatId, msg, code); }
+    });
 
     stats.sent++;
     if (chatId.startsWith('g:')) stats.groupSent++;
@@ -503,7 +557,7 @@
 
   function broadcastGroup(g) {
     g.names = groupNames(g.members);
-    others(g).forEach((c) => (isOnline(c) ? sendTo(c, { type: 'group', group: g }) : connectTo(c)));
+    others(g).forEach((c) => { if (!sendData(c, { type: 'group', group: g })) connectTo(c); });
   }
 
   function createGroup(name, members) {
@@ -552,7 +606,7 @@
   }
 
   function leaveGroup(g) {
-    others(g).forEach((c) => sendTo(c, { type: 'gleave', gid: g.id }));
+    others(g).forEach((c) => sendData(c, { type: 'gleave', gid: g.id }));
     leftGroups.push(g.id);
     delete groups[g.id];
     deleteChatData('g:' + g.id);
@@ -1210,6 +1264,8 @@
     $('setPreview').checked = settings.preview;
     $('setBackground').checked = settings.runInBackground;
     $('setLogin').checked = settings.openAtLogin;
+    $('setRelay').checked = settings.relay !== false;
+    relay.renderRelayStatus();
     renderNotifyRows();
     $('setAutoUpdate').checked = settings.autoUpdate;
     window.chatboxWindow.isPinned().then((p) => { $('setPin').checked = p; });
@@ -1331,12 +1387,20 @@
   function renderNotifyRows() {
     ['setSound', 'setPreview'].forEach((id) => $(id).closest('.setting').classList.toggle('disabled', !settings.notify));
   }
-  $('setNotify').onchange = (e) => { settings.notify = e.target.checked; saveSettings(); renderNotifyRows(); };
+  $('setNotify').onchange = (e) => {
+    settings.notify = e.target.checked; saveSettings(); renderNotifyRows();
+    if (settings.notify) setTimeout(() => relay.setupPush(), 2000); // nach der Erlaubnis-Abfrage
+  };
   $('setSound').onchange = (e) => { settings.sound = e.target.checked; saveSettings(); };
   $('setPreview').onchange = (e) => { settings.preview = e.target.checked; saveSettings(); };
   $('setBackground').onchange = (e) => { settings.runInBackground = e.target.checked; saveSettings(); sendPrefs(); };
   $('setLogin').onchange = (e) => { settings.openAtLogin = e.target.checked; saveSettings(); sendPrefs(); };
+  $('setRelay').onchange = (e) => {
+    settings.relay = e.target.checked; saveSettings();
+    if (settings.relay) relay.start(); else relay.renderRelayStatus();
+  };
   $('notifyTest').onclick = () => {
+    setTimeout(() => relay.setupPush(), 2000);
     window.chatboxWindow.notify({ title: 'WhatsUp', body: 'So sehen deine Benachrichtigungen aus 👋', silent: !settings.sound });
   };
   $('setAutoUpdate').onchange = (e) => { settings.autoUpdate = e.target.checked; saveSettings(); };
@@ -1446,7 +1510,14 @@
     pendingAdd = code;
     setStatus(peer && peer.open ? 'Verbinde…' : 'Gespeichert. Wird verbunden, sobald du wieder online bist…');
     if (isOnline(code)) conns[code].send(helloPayload(code));
-    else { delete connecting[code]; connectTo(code); }
+    else {
+      delete connecting[code]; connectTo(code);
+      // Offline? Dann die Freundschaftsanfrage über den Briefkasten-Server schicken
+      setTimeout(async () => {
+        if (isOnline(code) || !(await relay.send(code, helloPayload(code)))) return;
+        if (pendingAdd === code) setStatus('Dein Freund ist offline. Die Anfrage kommt an, sobald dein Freund WhatsUp öffnet.');
+      }, 4000);
+    }
     checkAchievements();
     render();
   };
@@ -1530,6 +1601,211 @@
     if (activeChat && unread[activeChat]) { delete unread[activeChat]; saveMeta(); scheduleRender(); }
   });
 
+  // ================= Briefkasten-Server (Offline-Zustellung) =================
+  // Ist der Empfänger offline, landet die Nachricht Ende-zu-Ende-verschlüsselt in seinem
+  // Briefkasten auf dem Server. Der Server kann sie weder lesen noch fälschen.
+  //  - Schlüssel: ECDSA (signieren) + ECDH (verschlüsseln), nicht exportierbar in IndexedDB
+  //  - Pro Nachricht: Einmal-Schlüssel (ECDH) -> HKDF -> AES-256-GCM, Absender signiert alles
+  const relay = (() => {
+    const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
+    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello']);
+    const te = new TextEncoder(), td = new TextDecoder();
+    let ident = null;        // { signPriv, encPriv, signPub, encPub }
+    let ready = false;
+    let polling = false;
+    const known = {};        // code -> registriert beim Server? (true/false)
+
+    const url = () => store.load('relayUrl', null) || DEFAULT_URL;
+    const enabled = () => settings.relay !== false && !!url();
+    const b64u = (buf) => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+    const unb64u = (s) => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+    const cat = (...p) => { const o = new Uint8Array(p.reduce((n, x) => n + x.length, 0)); let i = 0; p.forEach((x) => { o.set(x, i); i += x.length; }); return o; };
+    const pubJwk = (k) => (k && k.kty === 'EC' && k.crv === 'P-256' && typeof k.x === 'string' && typeof k.y === 'string' && !k.d ? { kty: 'EC', crv: 'P-256', x: k.x, y: k.y } : null);
+
+    async function loadKeys() {
+      let k = await db.get('keys', 'identity').catch(() => null);
+      if (!k) {
+        const s = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+        const e = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+        k = {
+          signPriv: s.privateKey, encPriv: e.privateKey,
+          signPub: pubJwk(await crypto.subtle.exportKey('jwk', s.publicKey)),
+          encPub: pubJwk(await crypto.subtle.exportKey('jwk', e.publicKey)),
+        };
+        await db.put('keys', 'identity', k);
+      }
+      ident = k;
+    }
+    async function sign(text) {
+      return b64u(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, ident.signPriv, te.encode(text)));
+    }
+    async function post(path, body) {
+      const res = await fetch(url() + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(data.error || 'HTTP ' + res.status); e.status = res.status; throw e; }
+      return data;
+    }
+
+    async function register() {
+      const ts = Date.now();
+      const { signPub: s, encPub: e } = ident;
+      const sig = await sign(`register|${me.code}|${ts}|${s.x}.${s.y}|${e.x}.${e.y}`);
+      await post(`/v1/register/${me.code}`, { sign: s, enc: e, ts, sig });
+    }
+
+    // Schlüssel eines Kontakts: zuerst die direkt (per Hello) übermittelten, sonst vom Server
+    async function keysOf(code) {
+      const c = contacts[code];
+      if (c && c.keys && c.keys.sign && c.keys.enc) return c.keys;
+      const res = await fetch(`${url()}/v1/keys/${code}`);
+      if (res.status === 404) { known[code] = false; return null; }
+      if (!res.ok) throw new Error('Schlüssel nicht erreichbar');
+      const k = await res.json();
+      const keys = { sign: pubJwk(k.sign), enc: pubJwk(k.enc) };
+      if (!keys.sign || !keys.enc) return null;
+      known[code] = true;
+      if (c) { c.keys = keys; saveMeta(); }
+      return keys;
+    }
+
+    async function seal(keys, data) {
+      const eph = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+      const epk = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey));
+      const theirs = await crypto.subtle.importKey('jwk', keys.enc, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+      const shared = await crypto.subtle.deriveBits({ name: 'ECDH', public: theirs }, eph.privateKey, 256);
+      const aes = await aesFrom(shared, epk);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, te.encode(JSON.stringify(data))));
+      const head = cat(new Uint8Array([1]), epk, iv);
+      const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, ident.signPriv, cat(head, ct)));
+      return cat(head, sig, ct); // 1 + 65 + 12 + 64 + Daten
+    }
+    async function aesFrom(shared, epk) {
+      const ikm = await crypto.subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey']);
+      return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: epk, info: te.encode('whatsup-relay-v1') }, ikm, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    }
+    async function open(env, from) {
+      if (env.length < 143 || env[0] !== 1) return null;
+      const head = env.subarray(0, 78), epk = env.subarray(1, 66), iv = env.subarray(66, 78);
+      const sig = env.subarray(78, 142), ct = env.subarray(142);
+      const keys = await keysOf(from);
+      if (!keys) return null;
+      const vkey = await crypto.subtle.importKey('jwk', keys.sign, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+      if (!(await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, vkey, sig, cat(head, ct)))) return null; // gefälscht
+      const theirs = await crypto.subtle.importKey('raw', epk, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+      const shared = await crypto.subtle.deriveBits({ name: 'ECDH', public: theirs }, ident.encPriv, 256);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await aesFrom(shared, epk), ct);
+      return JSON.parse(td.decode(pt));
+    }
+
+    // Nachricht in den Briefkasten des Empfängers legen. true = angenommen
+    async function send(code, data) {
+      if (!ready || !enabled() || !data || !RELAY_TYPES.has(data.type) || blocked.includes(code) || known[code] === false) return false;
+      try {
+        const keys = await keysOf(code);
+        if (!keys) return false;
+        const body = await seal(keys, data);
+        const ts = Date.now();
+        const res = await fetch(`${url()}/v1/send/${code}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-From': me.code, 'X-Ts': String(ts), 'X-Sig': await sign(`send|${me.code}|${code}|${ts}`) },
+          body,
+        });
+        if (res.status === 404) { known[code] = false; return false; }
+        return res.ok;
+      } catch (e) { console.warn('Briefkasten senden:', e); return false; }
+    }
+
+    // Eigenen Briefkasten leeren
+    async function poll() {
+      if (!ready || !enabled() || polling) return;
+      polling = true;
+      try {
+        let ts = Date.now();
+        const { items } = await post(`/v1/inbox/${me.code}`, { ts, sig: await sign(`inbox|${me.code}|${ts}`) });
+        const done = [];
+        for (const it of items || []) {
+          try {
+            ts = Date.now();
+            const res = await fetch(`${url()}/v1/get/${me.code}/${it.id}`, { headers: { 'X-Ts': String(ts), 'X-Sig': await sign(`get|${me.code}|${ts}|${it.id}`) } });
+            if (res.status === 404) { done.push(it.id); continue; }
+            if (!res.ok) continue;
+            const data = await open(new Uint8Array(await res.arrayBuffer()), it.sender).catch(() => null);
+            if (data && !blocked.includes(it.sender)) { try { handleData(it.sender, data); } catch (e) { console.error(e); } }
+            done.push(it.id); // auch unlesbare/gefälschte Nachrichten entfernen
+          } catch (e) { console.warn('Briefkasten abholen:', e); }
+        }
+        if (done.length) {
+          ts = Date.now();
+          await post(`/v1/ack/${me.code}`, { ids: done, ts, sig: await sign(`ack|${me.code}|${ts}|${done.join(',')}`) });
+        }
+        relayPending();
+      } catch (e) { console.warn('Briefkasten:', e); }
+      finally { polling = false; renderRelayStatus(); }
+    }
+
+    // Web-Version: Push-Benachrichtigungen aufs Handy, auch wenn WhatsUp zu ist
+    async function setupPush() {
+      if (!document.documentElement.classList.contains('is-web') || !('PushManager' in window) || !navigator.serviceWorker) return;
+      if (!('Notification' in window) || Notification.permission !== 'granted' || !settings.notify) return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const { key } = await (await fetch(`${url()}/v1/vapid/x`)).json();
+        if (!key) return;
+        const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64u(key) }));
+        const s = sub.toJSON();
+        const ts = Date.now();
+        await post(`/v1/push/${me.code}`, { sub: s, ts, sig: await sign(`push|${me.code}|${ts}|${s.endpoint}`) });
+      } catch (e) { console.warn('Push:', e); }
+    }
+    // Namen für die Push-Anzeige im Service Worker bereitlegen
+    function saveNames() {
+      const names = {};
+      Object.entries(contacts).forEach(([c, v]) => { names[c] = v.name; });
+      db.put('keys', 'pushNames', names).catch(() => {});
+    }
+
+    function renderRelayStatus() {
+      const st = $('relayStatus');
+      if (!st) return;
+      st.textContent = !enabled() ? 'Aus' : ready ? 'Aktiv · verschlüsselt' : 'Nicht erreichbar';
+    }
+
+    async function start() {
+      if (!enabled()) { renderRelayStatus(); return; }
+      try {
+        await loadKeys();
+        await register();
+        ready = true;
+      } catch (e) { console.warn('Briefkasten-Server nicht verfügbar:', e); ready = false; }
+      renderRelayStatus();
+      if (!ready) { setTimeout(start, 60000); return; }
+      broadcastProfile();   // Freunde bekommen unsere Schlüssel
+      poll();
+      setupPush();
+      saveNames();
+    }
+
+    // Abholen: beim Start, jede Minute, beim Zurückkehren in die App und wenn das Netz wieder da ist
+    setInterval(() => poll(), 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+    if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'relay-poll') poll(); });
+    window.addEventListener('online', () => poll());
+
+    return {
+      start, poll, send, setupPush, saveNames, renderRelayStatus,
+      canSend: (code) => ready && enabled() && known[code] !== false,
+      publicKeys: () => (ident ? { sign: ident.signPub, enc: ident.encPub } : null),
+      // Direkt (per Verbindung) erhaltene Schlüssel merken
+      pinKeys(code, k) {
+        const keys = k && { sign: pubJwk(k.sign), enc: pubJwk(k.enc) };
+        if (!keys || !keys.sign || !keys.enc) return;
+        const c = contacts[code];
+        if (c) { c.keys = keys; known[code] = true; }
+      },
+    };
+  })();
+
   // ================= Start =================
   async function boot() {
     await loadData();
@@ -1538,6 +1814,7 @@
     render();
     startPeer();
     setInterval(connectAll, RETRY_MS);
+    relay.start();
     window.chatboxWindow.ready(); // jetzt dürfen Antworten aus Benachrichtigungen kommen
   }
 

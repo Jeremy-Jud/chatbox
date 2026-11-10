@@ -49,8 +49,8 @@ WhatsUp läuft auch im Browser: **[jeremy-jud.github.io/whatsup](https://jeremy-
 
 Die Web-Version chattet direkt mit der Windows-App. **Jedes Gerät hat aber seinen eigenen Code:** Dein iPhone bekommt einen anderen Code als dein PC, und Chats und Freunde werden nicht zwischen den Geräten übertragen. Deine Freunde müssen deinen iPhone-Code also extra adden.
 
-Wichtig: iPhone und iPad pausieren Apps im Hintergrund.
-Weil WhatsUp ohne Server direkt von Gerät zu Gerät funktioniert, kommen Nachrichten nur an, **solange WhatsUp offen ist**.
+iPhone und iPad pausieren Apps im Hintergrund. Nachrichten, die in der Zwischenzeit kommen, warten verschlüsselt im Briefkasten (siehe [Offline-Zustellung](#-offline-zustellung)) und erscheinen beim nächsten Öffnen.
+Damit du sie mitbekommst, schalte in WhatsUp unter **Einstellungen → Benachrichtigungen** die Benachrichtigungen ein. Dann bekommst du eine **Push-Benachrichtigung**, auch wenn WhatsUp geschlossen ist (ab iOS 16.4, nur vom Home-Bildschirm aus).
 
 ## ✨ Funktionen
 
@@ -91,12 +91,21 @@ Weil WhatsUp ohne Server direkt von Gerät zu Gerät funktioniert, kommen Nachri
 6. **Erfolge:** Über 🏆 oben rechts siehst du alle Erfolge und deinen Fortschritt.
 7. **Infos & Entfernen:** Im Chat oben auf den Namen klicken. Dort kannst du Freunde entfernen oder Gruppen verwalten.
 
-> ℹ️ Weil es keinen zentralen Server gibt, müssen **beide** WhatsUp geöffnet haben, damit Nachrichten ankommen.
+## 📬 Offline-Zustellung
+
+Sind beide online, gehen Nachrichten wie bisher **direkt von Gerät zu Gerät**.
+Ist dein Freund offline, landet die Nachricht **Ende-zu-Ende-verschlüsselt** in seinem Briefkasten auf einem kleinen Server (Cloudflare). Sobald er WhatsUp öffnet, wird sie abgeholt und vom Server gelöscht. Dann siehst du ✓✓.
+
+- Funktioniert für Nachrichten, Bilder, GIFs, Gruppen und Freundschaftsanfragen
+- Ungelesene Nachrichten werden nach 30 Tagen automatisch gelöscht
+- Lässt sich unter **Einstellungen → Offline-Zustellung** ausschalten (dann wieder nur direkt)
+- Der Server-Code liegt im Ordner [`relay/`](relay/)
 
 ## 🔒 Sicherheit & Datenschutz
 
 - **Verschlüsselte Direktverbindung:** Nachrichten laufen über WebRTC-Datenkanäle, die immer mit DTLS verschlüsselt sind.
-- **Kein Nachrichtenserver:** Der öffentliche [PeerJS](https://peerjs.com)-Server hilft nur beim *Verbindungsaufbau* (Signalisierung). Deine Nachrichten bekommt er nie zu sehen.
+- **Verschlüsselter Briefkasten:** Für die Offline-Zustellung hat jedes Gerät eigene Schlüssel (P-256), die das Gerät nie verlassen. Jede Nachricht wird mit einem Einmal-Schlüssel und AES-256-GCM verschlüsselt und vom Absender signiert. Der Server kann Nachrichten weder lesen noch fälschen, und nur der Besitzer des Codes kann seinen Briefkasten abholen.
+- **Signalisierung:** Der öffentliche [PeerJS](https://peerjs.com)-Server hilft nur beim *Verbindungsaufbau*. Deine Nachrichten bekommt er nie zu sehen.
 - **Keine Konten, kein Tracking:** Es gibt keine Telemetrie und keine Werbung. Deine Kontakte bekommen nur Name, Status, Profilbild und die Anzahl deiner Erfolge.
 - **Geprüfte Daten:** Empfangene Bilder werden nur als PNG, JPEG, GIF oder WebP angenommen und in der Größe begrenzt. Texte werden nie als HTML dargestellt.
 - **Entfernen sperrt:** Wenn du einen Freund entfernst, kann dieser Code dich nicht mehr erreichen, bis du ihn selbst wieder addest.
@@ -109,6 +118,7 @@ Wichtig zu wissen:
 - Bei einer direkten Verbindung sieht dein Chatpartner deine IP-Adresse. Das ist bei jeder Peer-to-Peer-Verbindung so.
 - Der Chatverlauf (inklusive Bilder) liegt unverschlüsselt in deinem Windows-Benutzerprofil (`%APPDATA%\Chatbox`).
 - In Gruppen verbinden sich alle Mitglieder direkt miteinander. Damit sehen auch Gruppenmitglieder, die du nicht geaddet hast, deine IP-Adresse.
+- Der Briefkasten-Server sieht keine Inhalte, aber **Metadaten**: welcher Code wann wie große Nachrichten an welchen Code schickt, sowie IP-Adressen.
 
 Sicherheitslücke gefunden? Bitte lies die [Sicherheitsrichtlinie](SECURITY.md).
 
@@ -153,6 +163,7 @@ whatsup/
     └── achievements.js  # Liste der Erfolge
 web/                 # Nur Web-Version: Ersatz für preload.js, iPhone-Design, Manifest, Icons
 scripts/build-web.js # Baut die Web-Version aus src/ + web/
+relay/               # Briefkasten-Server (Cloudflare Worker): npm install && npx wrangler deploy
 ```
 
 ## 🗺️ Ideen für später
