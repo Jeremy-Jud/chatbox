@@ -39,6 +39,17 @@ Danach Namen eingeben und fertig. Du bekommst deinen eigenen **6-stelligen Code*
 
 Alle Versionen findest du unter [**Releases**](https://github.com/Jeremy-Jud/whatsup/releases).
 
+### 📱 iPhone & iPad
+
+WhatsUp läuft auch im Browser: **[jeremy-jud.github.io/whatsup](https://jeremy-jud.github.io/whatsup/)**
+
+1. Den Link in **Safari** öffnen.
+2. Auf **Teilen** (Viereck mit Pfeil) → **„Zum Home-Bildschirm“** tippen.
+3. WhatsUp vom Home-Bildschirm starten. Es läuft dann im Vollbild wie eine eigene App.
+
+Du chattest mit denselben Codes wie in der Windows-App. Wichtig: iPhone und iPad pausieren Apps im Hintergrund.
+Weil WhatsUp ohne Server direkt von Gerät zu Gerät funktioniert, kommen Nachrichten nur an, **solange WhatsUp offen ist**.
+
 ## ✨ Funktionen
 
 | | |
@@ -117,7 +128,10 @@ cd whatsup
 npm install
 npm start          # App im Entwicklermodus starten
 npm run dist       # WhatsUp.exe in den Ordner dist/ bauen
+npm run build:web  # Web-Version (iPhone/iPad) in den Ordner dist-web/ bauen
 ```
+
+Die Web-Version wird bei jedem Push auf `main` automatisch auf GitHub Pages veröffentlicht (`.github/workflows/web.yml`).
 
 > Unter Windows PowerShell funktioniert `npm` manchmal nicht, weil die Skriptausführung gesperrt ist. Nimm dann `npm.cmd install` und `npm.cmd start`.
 
@@ -133,6 +147,8 @@ whatsup/
     ├── app.js       # Chat-Logik (PeerJS, Freunde, Gruppen, Bilder, Profil)
     ├── emojis.js    # Emoji-Auswahl
     └── achievements.js  # Liste der Erfolge
+web/                 # Nur Web-Version: Ersatz für preload.js, iPhone-Design, Manifest, Icons
+scripts/build-web.js # Baut die Web-Version aus src/ + web/
 ```
 
 ## 🗺️ Ideen für später

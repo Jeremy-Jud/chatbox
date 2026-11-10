@@ -11,7 +11,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win --publish never"
+    "dist": "electron-builder --win --publish never",
+    "build:web": "node scripts/build-web.js"
   },
   "license": "MIT",
   "dependencies": {
