@@ -28,7 +28,7 @@ jobs:
       # --ignore-scripts: Electron selbst wird für die Web-Version nicht gebraucht
       - run: npm ci --ignore-scripts
       - run: npm run build:web
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist-web
 
