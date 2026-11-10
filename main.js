@@ -338,7 +338,8 @@ ipcMain.on('update:install', () => {
 ipcMain.on('open:repo', () => shell.openExternal(`https://github.com/${REPO}`));
 
 // Bild/GIF von einer Adresse laden – z. B. GIFs aus dem Windows-Emoji-Feld (Win + .),
-// das statt einer Datei nur einen Bild-Link einfügt. Nur https, nur Bilder, max. 7 MB.
+// das statt einer Datei nur einen Bild-Link einfügt. Nur https, nur Bilder, max. 25 MB.
+const MAX_FETCH = 25 * 1024 * 1024;
 ipcMain.handle('fetch:image', async (_e, url) => {
   let u;
   try { u = new URL(String(url)); } catch { throw new Error('Ungültige Adresse'); }
@@ -351,9 +352,9 @@ ipcMain.handle('fetch:image', async (_e, url) => {
     const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (!/^image\/(gif|png|jpeg|webp)$/.test(type)) throw new Error('Keine Bilddatei');
     const len = Number(res.headers.get('content-length') || 0);
-    if (len > 7 * 1024 * 1024) throw new Error('Das GIF ist zu groß (max. 7 MB)');
+    if (len > MAX_FETCH) throw new Error('Das GIF ist zu groß (max. 25 MB)');
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 7 * 1024 * 1024) throw new Error('Das GIF ist zu groß (max. 7 MB)');
+    if (buf.length > MAX_FETCH) throw new Error('Das GIF ist zu groß (max. 25 MB)');
     return { type, base64: buf.toString('base64') };
   } catch (e) {
     if (e && e.name === 'AbortError') throw new Error('Das GIF lädt zu lange – Internetverbindung prüfen');

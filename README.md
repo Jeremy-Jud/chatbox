@@ -60,7 +60,7 @@ Weil WhatsUp ohne Server direkt von Gerät zu Gerät funktioniert, kommen Nachri
 | 🔑 **Freundescode** | Jeder bekommt einen eigenen Code wie `K7M2QX`. Code eingeben, schon seid ihr verbunden |
 | ⚡ **Echtzeit-Chat** | Nachrichten gehen direkt von PC zu PC (Peer-to-Peer) |
 | 👥 **Gruppenchats** | Gruppen erstellen, Freunde hinzufügen, umbenennen, verlassen. Mit Gruppenbild und Beschreibung |
-| 📷 **Bilder & GIFs** | Über 📎, mit Strg+V, per Drag & Drop oder aus dem Windows-Emoji-Feld (Win + .). Bilder werden automatisch verkleinert |
+| 📷 **Bilder & GIFs** | Über 📎, mit Strg+V, per Drag & Drop oder aus dem Windows-Emoji-Feld (Win + .). GIFs bis 25 MB, Bilder werden automatisch verkleinert |
 | 🧹 **Chat leeren** | Verlauf eines Chats löschen und Speicher freigeben. Übersicht aller Chats nach Größe in den Einstellungen |
 | 📱 **Web-Version** | Für iPhone, iPad und Android, chattet direkt mit der Windows-App |
 | 😊 **Emojis** | Emoji-Auswahl mit Kategorien und „Zuletzt benutzt“. Nachrichten nur aus Emojis werden groß angezeigt |

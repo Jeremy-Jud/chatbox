@@ -9,7 +9,10 @@
   const CODE_RE = /^[A-Z0-9]{6}$/;
   const RETRY_MS = 10000;
   const MAX_TEXT = 4000;
-  const MAX_MEDIA = 10 * 1024 * 1024; // Länge der Base64-Daten-URL
+  const MAX_MB = 25;                                              // max. Größe pro Bild/GIF
+  const MAX_MEDIA = Math.ceil(MAX_MB * 1024 * 1024 * 4 / 3) + 64; // als Base64-Daten-URL
+  const OLD_MAX_MEDIA = 10 * 1024 * 1024; // Grenze bis v1.10 – ältere Versionen lehnen Größeres ab
+  const PROTO = 3;                        // Protokoll-Version (3 = große Dateien bis 25 MB)
   const MAX_AVATAR = 300 * 1024;
   const MEDIA_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
   const $ = (id) => document.getElementById(id);
@@ -300,7 +303,7 @@
 
   function helloPayload(code) {
     return {
-      type: 'hello', v: 2, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null,
+      type: 'hello', v: PROTO, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null,
       badges: Object.keys(unlocked).length, ctx: isFriend(code) ? 'friend' : 'group',
     };
   }
@@ -321,6 +324,10 @@
         c.avatar = validAvatar(data.avatar);
         c.frame = validFrame(data.frame);
         c.badges = Math.max(0, Math.min(999, Number(data.badges) || 0));
+        const oldV = c.v || 1;
+        c.v = Math.max(1, Math.min(99, Number(data.v) || 1));
+        // Wartende große Dateien zustellen, sobald der Freund eine neue Version hat
+        if (oldV < PROTO && c.v >= PROTO) setTimeout(() => flushPending(code), 0);
         if (data.ctx !== 'group' && !c.friend) {
           c.friend = true;
           if (pendingAdd !== code) { notify('Neuer Freund', `${c.name} hat dich hinzugefügt.`); toast(`🤝 ${c.name} hat dich hinzugefügt`); }
@@ -424,12 +431,19 @@
     queues[code] = (queues[code] || Promise.resolve()).then(fn).catch(console.error);
   }
 
+  const oldVersionWarned = new Set();
   async function deliverTo(chatId, msg, code) {
     if (!isOnline(code)) return;
     const wire = { id: msg.id, text: msg.text, ts: msg.ts };
     if (msg.media) {
       const data = await getMedia(chatId, msg.id);
       if (!data) return;
+      // Ältere Versionen (bis v1.10) lehnen Dateien über ~7 MB ab -> warten, bis der Freund aktualisiert
+      if (data.length > OLD_MAX_MEDIA && ((contacts[code] && contacts[code].v) || 1) < PROTO) {
+        const k = code + '|' + msg.id;
+        if (!oldVersionWarned.has(k)) { oldVersionWarned.add(k); toast(`${nameOf(code)} braucht ein WhatsUp-Update für große GIFs – wird danach zugestellt`); }
+        return;
+      }
       wire.media = { kind: msg.media.kind, w: msg.media.w, h: msg.media.h, data };
     }
     if (chatId.startsWith('g:')) { wire.type = 'gmsg'; wire.gid = chatId.slice(2); } else wire.type = 'msg';
@@ -599,7 +613,7 @@
     const url = await readAsDataURL(file);
     const img = await loadImg(url);
     if (file.type === 'image/gif') {
-      if (url.length > MAX_MEDIA) throw new Error('Das GIF ist zu groß (max. 7 MB).');
+      if (url.length > MAX_MEDIA) throw new Error(`Das GIF ist zu groß (max. ${MAX_MB} MB).`);
       return { kind: 'gif', data: url, w: img.naturalWidth, h: img.naturalHeight };
     }
     const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
@@ -940,7 +954,8 @@
     show('viewChat');
     render();
     recipientsOf(chatId).forEach(connectTo);
-    $('msgInput').focus();
+    // Nur mit Maus/Tastatur automatisch ins Eingabefeld – auf dem Handy würde sonst die Tastatur aufspringen
+    if (!window.matchMedia('(pointer: coarse)').matches) $('msgInput').focus();
   }
 
   function closeChat() {
@@ -1169,7 +1184,7 @@
     const s = input.selectionStart ?? input.value.length, t = input.selectionEnd ?? input.value.length;
     input.value = input.value.slice(0, s) + e + input.value.slice(t);
     input.selectionStart = input.selectionEnd = s + e.length;
-    input.focus();
+    if (!window.matchMedia('(pointer: coarse)').matches) input.focus(); // Handy: Tastatur nicht über die Emojis schieben
     recentEmojis = [e, ...recentEmojis.filter((x) => x !== e)].slice(0, 32);
     store.save('recentEmojis', recentEmojis);
   }
