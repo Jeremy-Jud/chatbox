@@ -305,14 +305,10 @@
 
     conn.on('open', () => {
       delete connecting[code];
-      const old = conns[code];
-      if (old && old !== conn && old.open) {
-        // Beide haben gleichzeitig verbunden: die Verbindung des kleineren Codes gewinnt
-        const initiator = mine ? me.code : code;
-        if (initiator !== (me.code < code ? me.code : code)) { conn.close(); return; }
-        conns[code] = conn;
-        old.close();
-      } else conns[code] = conn;
+      // Die neueste Verbindung gewinnt. Eine ältere kann tot sein, ohne dass wir es merken
+      // (z. B. iPhone im Hintergrund, PC neu gestartet) – dann würde alles dort verloren gehen.
+      // Die alte bleibt offen: Was darüber noch ankommt, wird weiter verarbeitet.
+      conns[code] = conn;
       conn.send(helloPayload(code));
       Object.values(groups).forEach((g) => { if (g.members.includes(code)) conn.send({ type: 'group', group: g }); });
       flushPending(code);
@@ -327,7 +323,7 @@
 
   function helloPayload(code) {
     return {
-      type: 'hello', v: PROTO, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null, banner: validBanner(me.banner),
+      type: 'hello', v: PROTO, pv: me.pv || 0, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null, banner: validBanner(me.banner),
       badges: Object.keys(unlocked).length, ctx: isFriend(code) ? 'friend' : 'group',
       keys: relay.publicKeys(),
     };
@@ -358,6 +354,7 @@
         c.avatar = validAvatar(data.avatar);
         c.frame = validFrame(data.frame);
         c.banner = validBanner(data.banner);
+        c.pv = Math.max(0, Number(data.pv) || 0);
         relay.pinKeys(code, data.keys);
         relay.saveNames();
         c.badges = Math.max(0, Math.min(999, Number(data.badges) || 0));
@@ -420,6 +417,10 @@
         saveMeta(); connectAll(); scheduleRender();
         break;
       }
+      case 'hreq':
+        // Direkt UND über den Briefkasten antworten – falls die direkte Verbindung tot ist
+        if (isFriend(code) || sharesGroup(code)) { const h = helloPayload(code); sendTo(code, h); relay.send(code, h).catch(() => {}); }
+        break;
       case 'call-end': case 'call-reject': case 'call-cam': case 'callmiss':
         calls.handle(code, data);
         break;
@@ -438,9 +439,21 @@
     }
   }
 
+  // Verpasste Profil-Änderungen nachholen (z. B. wenn ein Update in eine tote Verbindung ging)
+  const profileAsked = {};
+  function checkProfileVersion(code, pv) {
+    const c = contacts[code];
+    pv = Number(pv) || 0;
+    if (!c || !pv || pv <= (c.pv || 0)) return;
+    if (profileAsked[code] && Date.now() - profileAsked[code] < 30000) return;
+    profileAsked[code] = Date.now();
+    sendData(code, { type: 'hreq' });
+  }
+
   function receiveMessage(chatId, from, data, gid) {
     const id = String(data.id || '').slice(0, 64);
     if (!id) return;
+    checkProfileVersion(from, data.pv);
     const list = (chats[chatId] = chats[chatId] || []);
     if (!list.some((m) => m.id === id)) {
       const text = clean(data.text, MAX_TEXT);
@@ -481,7 +494,7 @@
     if (msg.deliveredTo.includes(code)) return;
     const useRelay = viaRelay || !isOnline(code);
     if (useRelay && (!relay.canSend(code) || (msg.relayedTo || []).includes(code))) return;
-    const wire = { id: msg.id, text: msg.text, ts: msg.ts };
+    const wire = { id: msg.id, text: msg.text, ts: msg.ts, pv: me.pv || 0 };
     if (msg.media) {
       const data = await getMedia(chatId, msg.id);
       if (!data) return;
@@ -1506,6 +1519,7 @@
     me.name = name.slice(0, 24);
     me.status = $('profStatus').value.trim().slice(0, 80);
     me.banner = draftBanner;
+    me.pv = Date.now();
     if (draftAvatar && draftAvatar !== me.avatar) stats.avatarSet++;
     me.avatar = draftAvatar;
     if (draftFrame && draftFrame !== me.frame) stats.frameSet = (stats.frameSet || 0) + 1;
@@ -3163,7 +3177,7 @@
   //  - Pro Nachricht: Einmal-Schlüssel (ECDH) -> HKDF -> AES-256-GCM, Absender signiert alles
   const relay = (() => {
     const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
-    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss']);
+    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss', 'hreq']);
     // Push aufs Handy nur für echte Nachrichten und Reaktionen (Profil, Gruppen-Abgleich, Bestätigungen usw. still)
     const PUSH_TYPES = new Set(['msg', 'gmsg', 'sreact', 'callmiss']);
     const te = new TextEncoder(), td = new TextDecoder();
@@ -3381,6 +3395,7 @@
 
   // ================= Start =================
   async function boot() {
+    if (!me.pv) { me.pv = Date.now(); saveMeta(); } // Freunde holen sich so einmal das aktuelle Profil
     await loadData();
     show('viewList');
     stories.prune();
