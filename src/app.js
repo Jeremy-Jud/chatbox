@@ -327,6 +327,7 @@
       conn.send(helloPayload(code));
       Object.values(groups).forEach((g) => { if (g.members.includes(code)) conn.send({ type: 'group', group: g }); });
       flushPending(code);
+      flushActions(code);
       stories.syncTo(code);
       scheduleRender();
     });
@@ -402,6 +403,11 @@
       case 'mact': // Reaktion oder „für alle löschen“
         receiveAction(code, data);
         break;
+      case 'mack': { // Bestätigung für eine Aktion
+        const a = actOutbox.find((x) => x.aid === data.aid);
+        if (a && a.to === code) doneAction(a.aid);
+        break;
+      }
       case 'ack': {
         const chatId = data.gid ? 'g:' + data.gid : 'u:' + code;
         const m = (chats[chatId] || []).find((x) => x.id === data.id);
@@ -566,6 +572,7 @@
     setTimeout(() => { if (!isOnline(code)) enqueue(code, () => deliverTo(chatId, msg, code)); }, ms);
   }
   function relayPending() {
+    flushActions();
     for (const [chatId, list] of Object.entries(chats)) {
       for (const m of list) {
         if (m.from !== me.code || !m.to) continue;
@@ -632,10 +639,50 @@
     return { id: r.id.slice(0, 64), from: r.from, text: snippet(clean(r.text, 300)) };
   }
 
-  // Aktion an alle anderen im Chat schicken (direkt oder über den Briefkasten)
+  // Aktion an alle anderen im Chat schicken – zuverlässig wie eine Nachricht:
+  // Sie bleibt im Postausgang, bis der andere sie bestätigt ('mack') oder der Briefkasten-Server sie angenommen hat.
+  // Ohne Bestätigung (z. B. tote Verbindung, iPhone im Hintergrund) geht sie nach 15 s zusätzlich über den Server.
+  const ACT_MAX_AGE = 30 * 24 * 3600 * 1000;
+  let actOutbox = store.load('actOutbox', []); // [{ aid, to, ts, data }]
+  const actBusy = new Set();
+  function saveOutbox() {
+    actOutbox = actOutbox.filter((a) => Date.now() - a.ts < ACT_MAX_AGE);
+    store.save('actOutbox', actOutbox);
+  }
   function sendAction(chatId, data) {
     const gid = chatId.startsWith('g:') ? chatId.slice(2) : null;
-    recipientsOf(chatId).forEach((code) => sendData(code, gid ? { ...data, type: 'mact', gid } : { ...data, type: 'mact' }));
+    const ts = Date.now();
+    recipientsOf(chatId).forEach((code) => {
+      const aid = crypto.randomUUID();
+      const item = { aid, to: code, ts, data: { ...data, type: 'mact', aid, ts, ...(gid ? { gid } : {}) } };
+      actOutbox.push(item);
+      deliverAction(item);
+    });
+    saveOutbox();
+  }
+  function deliverAction(item, viaRelay = false) {
+    const code = item.to;
+    if (actBusy.has(item.aid) && !viaRelay) return;
+    actBusy.add(item.aid);
+    if (!viaRelay && isOnline(code) && sendTo(code, item.data)) {
+      setTimeout(() => { if (actOutbox.some((a) => a.aid === item.aid)) deliverAction(item, true); }, 15000);
+      return;
+    }
+    if (!isOnline(code)) connectTo(code);
+    relay.send(code, item.data)
+      .then((ok) => { if (ok) doneAction(item.aid); })
+      .catch(() => {})
+      .finally(() => actBusy.delete(item.aid)); // sonst später nochmal (Verbindung/Briefkasten wieder da)
+  }
+  function doneAction(aid) {
+    actBusy.delete(aid);
+    const n = actOutbox.length;
+    actOutbox = actOutbox.filter((a) => a.aid !== aid);
+    if (actOutbox.length !== n) saveOutbox();
+  }
+  // Wartende Aktionen erneut versuchen (neue Verbindung, Briefkasten-Abruf, Start)
+  function flushActions(code) {
+    actOutbox.filter((a) => !code || a.to === code).forEach((a) => deliverAction(a));
   }
 
   function removeMedia(chatId, m) {
@@ -686,6 +733,8 @@
       if (!g || !g.members.includes(from) || !g.members.includes(me.code)) return;
       chatId = 'g:' + g.id;
     } else chatId = 'u:' + from;
+    // Empfang bestätigen, damit der Absender nicht mehr über den Server nachschickt
+    if (typeof data.aid === 'string') sendTo(from, { type: 'mack', aid: data.aid.slice(0, 64) });
     const id = String(data.id || '').slice(0, 64);
     const m = findMsg(chatId, id);
     if (data.act === 'del') {
@@ -695,6 +744,11 @@
       saveChat(chatId); scheduleRender();
     } else if (data.act === 'react') {
       if (!m || m.deleted) return;
+      // Eine Reaktion kann doppelt (direkt + Server) oder verspätet ankommen: nur die neueste zählt
+      const ts = Number(data.ts) || 0;
+      m.rts = m.rts || {};
+      if (ts && ts <= (m.rts[from] || 0)) return;
+      if (ts) m.rts[from] = ts;
       m.reactions = m.reactions || {};
       if (validEmoji(data.emoji)) m.reactions[from] = data.emoji; else delete m.reactions[from];
       if (!Object.keys(m.reactions).length) delete m.reactions;
