@@ -399,6 +399,9 @@
         receiveMessage('g:' + g.id, code, data, g.id);
         break;
       }
+      case 'mact': // Reaktion oder „für alle löschen“
+        receiveAction(code, data);
+        break;
       case 'ack': {
         const chatId = data.gid ? 'g:' + data.gid : 'u:' + code;
         const m = (chats[chatId] || []).find((x) => x.id === data.id);
@@ -472,12 +475,20 @@
     if (!id) return;
     checkProfileVersion(from, data.pv);
     const list = (chats[chatId] = chats[chatId] || []);
+    // Wurde schon „für alle gelöscht“, bevor sie ankam? Dann gar nicht erst anzeigen
+    if (tombstones[chatId + '|' + id]) {
+      delete tombstones[chatId + '|' + id]; saveTombstones();
+      list.push({ id, from, text: '', ts: clampTs(data.ts), deleted: true });
+      saveChat(chatId); scheduleRender();
+    }
     if (!list.some((m) => m.id === id)) {
       const text = clean(data.text, MAX_TEXT);
       let media = validMedia(data.media);
       if (media && media.kind === 'sticker' && from !== STICKER_OWNER) media = null;
       if (!text && !media) { sendData(from, gid ? { type: 'ack', id, gid } : { type: 'ack', id }); return; }
       const msg = { id, from, text, ts: clampTs(data.ts) };
+      const reply = validReply(data.reply);
+      if (reply) msg.reply = reply;
       if (media) { msg.media = mediaMeta(media); putMedia(chatId, id, media.data); }
       list.push(msg);
       saveChat(chatId);
@@ -508,10 +519,11 @@
 
   const oldVersionWarned = new Set();
   async function deliverTo(chatId, msg, code, viaRelay = false) {
-    if (msg.deliveredTo.includes(code)) return;
+    if (msg.deliveredTo.includes(code) || msg.deleted) return; // gelöschte Nachrichten nicht mehr zustellen
     const useRelay = viaRelay || !isOnline(code);
     if (useRelay && (!relay.canSend(code) || (msg.relayedTo || []).includes(code))) return;
     const wire = { id: msg.id, text: msg.text, ts: msg.ts, pv: me.pv || 0 };
+    if (msg.reply) wire.reply = msg.reply;
     if (msg.media) {
       const data = await getMedia(chatId, msg.id);
       if (!data) return;
@@ -577,6 +589,12 @@
   async function sendMessage(chatId, text, media) {
     const to = recipientsOf(chatId);
     const msg = { id: crypto.randomUUID(), from: me.code, text, ts: Date.now(), to, sentTo: [], deliveredTo: [] };
+    // Antwort auf eine Nachricht?
+    if (pendingReply && pendingReply.chatId === chatId) {
+      const orig = findMsg(chatId, pendingReply.id);
+      if (orig && !orig.deleted) msg.reply = replyRef(orig);
+      clearReply();
+    }
     if (media) { msg.media = mediaMeta(media); await putMedia(chatId, msg.id, media.data); }
     (chats[chatId] = chats[chatId] || []).push(msg);
     saveChat(chatId);
@@ -595,6 +613,268 @@
     if (h >= 5 && h < 7) stats.early++;
     touchDay();
     saveMeta(); checkAchievements(); scheduleRender();
+  }
+
+  // ================= Antworten, Reaktionen, Löschen =================
+  const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  const validEmoji = (e) => typeof e === 'string' && e.length <= 16 && /\p{Extended_Pictographic}/u.test(e) && !/[\p{L}\p{N}<>]/u.test(e.replace(/[\u{1F1E6}-\u{1F1FF}#*0-9️⃣]/gu, ''));
+  const snippet = (s, n = 90) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  let pendingReply = null; // { chatId, id }
+  // Für alle gelöschte Nachrichten, die (noch) nicht da sind: chatId|id -> Zeit
+  const tombstones = store.load('tombstones', {});
+
+  const findMsg = (chatId, id) => (chats[chatId] || []).find((x) => x.id === id && !x.sys);
+  function replyRef(m) {
+    return { id: m.id, from: m.from, text: snippet(m.deleted ? '' : preview(m)) };
+  }
+  function validReply(r) {
+    if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !CODE_RE.test(String(r.from || ''))) return null;
+    return { id: r.id.slice(0, 64), from: r.from, text: snippet(clean(r.text, 300)) };
+  }
+
+  // Aktion an alle anderen im Chat schicken (direkt oder über den Briefkasten)
+  function sendAction(chatId, data) {
+    const gid = chatId.startsWith('g:') ? chatId.slice(2) : null;
+    recipientsOf(chatId).forEach((code) => sendData(code, gid ? { ...data, type: 'mact', gid } : { ...data, type: 'mact' }));
+  }
+
+  function removeMedia(chatId, m) {
+    if (!m.media) return;
+    mediaCache.delete(mediaKey(chatId, m.id));
+    db.del('media', mediaKey(chatId, m.id)).catch(() => {});
+    delete m.media;
+  }
+  function markDeleted(chatId, m) {
+    removeMedia(chatId, m);
+    m.text = '';
+    m.deleted = true;
+    delete m.reactions;
+    delete m.reply;
+  }
+
+  function setReaction(chatId, m, emoji) {
+    if (!m || m.deleted) return;
+    m.reactions = m.reactions || {};
+    if (emoji && m.reactions[me.code] !== emoji) m.reactions[me.code] = emoji;
+    else { delete m.reactions[me.code]; emoji = ''; }
+    if (!Object.keys(m.reactions).length) delete m.reactions;
+    saveChat(chatId); scheduleRender();
+    sendAction(chatId, { act: 'react', id: m.id, emoji });
+  }
+
+  function deleteForAll(chatId, m) {
+    if (!m || m.from !== me.code || m.deleted) return;
+    markDeleted(chatId, m);
+    saveChat(chatId); scheduleRender();
+    sendAction(chatId, { act: 'del', id: m.id });
+  }
+  function deleteForMe(chatId, m) {
+    const list = chats[chatId] || [];
+    const i = list.indexOf(m);
+    if (i < 0) return;
+    removeMedia(chatId, m);
+    list.splice(i, 1);
+    if (pendingReply && pendingReply.id === m.id) clearReply();
+    saveChat(chatId); scheduleRender();
+  }
+
+  // Aktion von einem anderen empfangen
+  function receiveAction(from, data) {
+    let chatId;
+    if (data.gid) {
+      const g = groups[data.gid];
+      if (!g || !g.members.includes(from) || !g.members.includes(me.code)) return;
+      chatId = 'g:' + g.id;
+    } else chatId = 'u:' + from;
+    const id = String(data.id || '').slice(0, 64);
+    const m = findMsg(chatId, id);
+    if (data.act === 'del') {
+      if (!m) { tombstones[chatId + '|' + id] = Date.now(); saveTombstones(); return; }
+      if (m.from !== from || m.deleted) return; // nur der Absender darf für alle löschen
+      markDeleted(chatId, m);
+      saveChat(chatId); scheduleRender();
+    } else if (data.act === 'react') {
+      if (!m || m.deleted) return;
+      m.reactions = m.reactions || {};
+      if (validEmoji(data.emoji)) m.reactions[from] = data.emoji; else delete m.reactions[from];
+      if (!Object.keys(m.reactions).length) delete m.reactions;
+      saveChat(chatId); scheduleRender();
+      if (m.from === me.code && validEmoji(data.emoji) && (activeChat !== chatId || !document.hasFocus())) {
+        notify(nameOf(from), `hat mit ${data.emoji} auf deine Nachricht reagiert: ${snippet(preview(m), 60)}`, { chatId, icon: contacts[from] && contacts[from].avatar });
+      }
+    }
+  }
+  function saveTombstones() {
+    const cut = Date.now() - 30 * 24 * 3600 * 1000; // so lange liegt eine Nachricht höchstens im Briefkasten
+    Object.keys(tombstones).forEach((k) => { if (tombstones[k] < cut) delete tombstones[k]; });
+    store.save('tombstones', tombstones);
+  }
+
+  // ---- Antworten: Leiste über dem Eingabefeld ----
+  function startReply(chatId, m) {
+    pendingReply = { chatId, id: m.id };
+    $('replyName').textContent = m.from === me.code ? 'Du' : nameOf(m.from);
+    $('replyName').style.color = m.from === me.code ? '' : colorFor(m.from);
+    $('replyText').textContent = snippet(preview(m)) || ' ';
+    $('replyBar').classList.remove('hidden');
+    $('msgInput').focus();
+  }
+  function clearReply() {
+    pendingReply = null;
+    $('replyBar').classList.add('hidden');
+  }
+  $('replyCancel').onclick = clearReply;
+
+  // Zitat in einer Nachricht; Klick springt zur Originalnachricht
+  function quoteEl(chatId, r) {
+    const orig = findMsg(chatId, r.id);
+    const q = el('div', 'quote');
+    const who = el('div', 'quote-name', r.from === me.code ? 'Du' : nameOf(r.from));
+    if (r.from !== me.code) who.style.color = colorFor(r.from);
+    q.style.borderColor = r.from === me.code ? '' : colorFor(r.from);
+    const text = orig && orig.deleted ? '🚫 Diese Nachricht wurde gelöscht' : orig ? snippet(preview(orig)) : r.text || 'Nachricht';
+    q.append(who, el('div', 'quote-text', text));
+    q.onclick = (e) => {
+      e.stopPropagation();
+      const target = $('messages').querySelector(`[data-id="${CSS.escape(r.id)}"]`);
+      if (!target) { toast('Originalnachricht nicht mehr vorhanden'); return; }
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+    };
+    return q;
+  }
+
+  // Reaktionen unter einer Nachricht: gleiche Emojis zusammengefasst
+  function reactionsEl(chatId, m) {
+    const by = {};
+    Object.entries(m.reactions).forEach(([code, e]) => { (by[e] = by[e] || []).push(code); });
+    const row = el('div', 'reacts');
+    Object.entries(by).sort((a, b) => b[1].length - a[1].length).forEach(([e, codes]) => {
+      const mine = codes.includes(me.code);
+      const chip = el('button', 'react-chip' + (mine ? ' mine' : ''), codes.length > 1 ? `${e} ${codes.length}` : e);
+      chip.type = 'button';
+      chip.title = codes.map((c) => (c === me.code ? 'Du' : nameOf(c))).join(', ') + (mine ? ' · Klicken zum Entfernen' : '');
+      chip.onclick = (ev) => { ev.stopPropagation(); setReaction(chatId, m, mine ? '' : e); };
+      row.appendChild(chip);
+    });
+    return row;
+  }
+
+  // ---- Menü: Rechtsklick (PC) oder lange gedrückt halten (Handy) ----
+  let menuOpenedAt = 0;
+  function attachMsgMenu(div, chatId, m) {
+    let timer = null, start = null, fired = false;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    div.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      cancel();
+      if (Date.now() - menuOpenedAt > 500) openMsgMenu(chatId, m, div, e.clientX, e.clientY);
+    });
+    div.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      fired = false;
+      start = { x: e.clientX, y: e.clientY };
+      cancel();
+      timer = setTimeout(() => {
+        timer = null; fired = true;
+        if (navigator.vibrate) navigator.vibrate(15);
+        openMsgMenu(chatId, m, div, start.x, start.y);
+      }, 450);
+    });
+    div.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) cancel(); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => div.addEventListener(t, cancel));
+    // Nach langem Drücken nicht zusätzlich das Bild öffnen o. Ä.
+    div.addEventListener('click', (e) => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+  }
+
+  function closeMsgMenu() {
+    const b = $('msgMenuBack');
+    if (b) b.remove();
+    document.querySelectorAll('.msg.menu-on').forEach((x) => x.classList.remove('menu-on'));
+  }
+
+  function openMsgMenu(chatId, m, div, x, y) {
+    closeMsgMenu();
+    menuOpenedAt = Date.now();
+    const back = el('div', 'msg-menu-back');
+    back.id = 'msgMenuBack';
+    const menu = el('div', 'msg-menu');
+    back.appendChild(menu);
+    div.classList.add('menu-on');
+    // Klicks direkt nach dem Öffnen (Loslassen des Fingers) ignorieren
+    back.addEventListener('click', (e) => { if (Date.now() - menuOpenedAt < 350) return; if (e.target === back) closeMsgMenu(); });
+    back.addEventListener('contextmenu', (e) => { e.preventDefault(); closeMsgMenu(); });
+
+    const act = (label, icon, fn, cls = '') => {
+      const b = el('button', 'menu-item ' + cls);
+      b.type = 'button';
+      b.append(el('span', 'menu-ic', icon), el('span', '', label));
+      b.onclick = (e) => { e.stopPropagation(); if (Date.now() - menuOpenedAt < 350) return; fn(); };
+      return b;
+    };
+
+    const drawMain = () => {
+      menu.replaceChildren();
+      if (!m.deleted) {
+        const bar = el('div', 'react-bar');
+        const mineR = m.reactions && m.reactions[me.code];
+        QUICK_REACTIONS.forEach((e) => {
+          const b = el('button', 'react-pick' + (mineR === e ? ' active' : ''), e);
+          b.type = 'button';
+          b.title = mineR === e ? 'Reaktion entfernen' : 'Reagieren';
+          b.onclick = (ev) => { ev.stopPropagation(); if (Date.now() - menuOpenedAt < 350) return; setReaction(chatId, m, e); closeMsgMenu(); };
+          bar.appendChild(b);
+        });
+        const plus = el('button', 'react-pick react-plus', '＋');
+        plus.type = 'button';
+        plus.title = 'Weitere Emojis';
+        plus.onclick = (ev) => { ev.stopPropagation(); if (Date.now() - menuOpenedAt < 350) return; drawMore(); };
+        bar.appendChild(plus);
+        menu.appendChild(bar);
+        menu.appendChild(act('Antworten', '↩️', () => { closeMsgMenu(); startReply(chatId, m); }));
+        if (m.text) menu.appendChild(act('Kopieren', '📋', async () => {
+          closeMsgMenu();
+          try { await navigator.clipboard.writeText(m.text); toast('Text kopiert'); } catch { toast('Kopieren fehlgeschlagen'); }
+        }));
+      }
+      menu.appendChild(act('Löschen', '🗑️', drawDelete, 'danger'));
+      place();
+    };
+    const drawMore = () => {
+      menu.replaceChildren();
+      const grid = el('div', 'react-grid');
+      const all = [...new Set([...recentEmojis, ...Object.values(window.CHATBOX_EMOJIS).join(' ').split(' ')])].filter(validEmoji);
+      all.forEach((e) => {
+        const b = el('button', 'react-pick', e);
+        b.type = 'button';
+        b.onclick = (ev) => { ev.stopPropagation(); setReaction(chatId, m, e); closeMsgMenu(); };
+        grid.appendChild(b);
+      });
+      menu.appendChild(grid);
+      place();
+    };
+    const drawDelete = () => {
+      menu.replaceChildren();
+      menu.appendChild(el('div', 'menu-title', 'Nachricht löschen?'));
+      const canAll = m.from === me.code && !m.deleted;
+      if (canAll) menu.appendChild(act('Für alle löschen', '🗑️', () => { closeMsgMenu(); deleteForAll(chatId, m); }, 'danger'));
+      menu.appendChild(act('Für mich löschen', '🙈', () => { closeMsgMenu(); deleteForMe(chatId, m); }, canAll ? '' : 'danger'));
+      menu.appendChild(act('Abbrechen', '✕', drawMain));
+      place();
+    };
+    // Menü neben dem Finger/Mauszeiger, aber immer ganz im Fenster
+    const place = () => {
+      const pad = 8, w = menu.offsetWidth, h = menu.offsetHeight;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let left = Math.min(Math.max(pad, x - w / 2), vw - w - pad);
+      let top = y + 12;
+      if (top + h > vh - pad) top = Math.max(pad, y - h - 12);
+      menu.style.left = left + 'px';
+      menu.style.top = top + 'px';
+    };
+
+    document.body.appendChild(back);
+    drawMain();
   }
 
   function systemMessage(chatId, text) {
@@ -919,7 +1199,7 @@
   const fmtTime = (ts) => new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   const fmtDay = (ts) => new Date(ts).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   const durText = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-  const preview = (m) => (m.media
+  const preview = (m) => (m.deleted ? '🚫 Diese Nachricht wurde gelöscht' : m.media
     ? (m.media.kind === 'sticker' ? '🩷 Sticker' : m.media.kind === 'audio' ? '🎤 Sprachnachricht (' + durText(m.media.dur) + ')' : m.media.kind === 'gif' ? '🎞️ GIF' : '📷 Bild') + (m.text ? ' ' + m.text : '')
     : m.text);
 
@@ -1140,19 +1420,25 @@
         box.appendChild(s);
       }
       lastFrom = m.from;
-      const big = !m.media && onlyEmoji(m.text);
+      const big = !m.media && !m.reply && !m.deleted && onlyEmoji(m.text);
       const isVoice = m.media && m.media.kind === 'audio';
       const isSticker = m.media && m.media.kind === 'sticker';
-      const div = el('div', 'msg ' + (mine ? 'me' : 'them') + (big ? ' big' : '') + (isSticker ? ' sticker' : isVoice ? ' has-voice' : m.media ? ' has-media' : ''));
-      if (isSticker) div.appendChild(stickers.view(chatId, m));
+      const div = el('div', 'msg ' + (mine ? 'me' : 'them') + (big ? ' big' : '') + (m.deleted ? ' deleted' : '') + (m.reactions && !m.deleted ? ' has-reacts' : '') + (m.reply && !m.deleted ? ' has-quote' : '')
+        + (isSticker ? ' sticker' : isVoice ? ' has-voice' : m.media ? ' has-media' : ''));
+      div.dataset.id = m.id;
+      if (m.reply && !m.deleted) div.appendChild(quoteEl(chatId, m.reply));
+      if (m.deleted) div.appendChild(el('div', 'text', mine ? '🚫 Du hast diese Nachricht gelöscht' : '🚫 Diese Nachricht wurde gelöscht'));
+      else if (isSticker) div.appendChild(stickers.view(chatId, m));
       else if (isVoice) div.appendChild(voice.el(chatId, m));
       else if (m.media) div.appendChild(mediaEl(chatId, m));
       if (m.text) div.appendChild(el('div', 'text', m.text));
       let tick = '';
-      if (mine && m.to && m.to.length) {
+      if (mine && m.to && m.to.length && !m.deleted) {
         tick = m.deliveredTo.length >= m.to.length ? ' ✓✓' : m.deliveredTo.length || m.sentTo.length ? ' ✓' : ' 🕓';
       }
       div.appendChild(el('div', 'meta', fmtTime(m.ts) + tick));
+      if (m.reactions && !m.deleted) div.appendChild(reactionsEl(chatId, m));
+      attachMsgMenu(div, chatId, m);
       box.appendChild(div);
     });
     if (atBottom || box.dataset.chat !== chatId) box.scrollTop = box.scrollHeight;
@@ -1196,7 +1482,7 @@
 
   // ================= Navigation =================
   function openChat(chatId) {
-    if (activeChat !== chatId) { voice.stop(false); voice.stopPlayback(); }
+    if (activeChat !== chatId) { voice.stop(false); voice.stopPlayback(); clearReply(); closeMsgMenu(); }
     activeChat = chatId;
     setTimeout(() => voice.syncComposer(), 0);
     delete unread[chatId];
@@ -1212,6 +1498,7 @@
     voice.stop(false);
     voice.stopPlayback();
     activeChat = null;
+    clearReply(); closeMsgMenu();
     closeModal();
     show('viewList');
     render();
@@ -1724,11 +2011,13 @@
   $('modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (!$('stkEditor').classList.contains('hidden')) $('stkCancel').click();
+    if ($('msgMenuBack')) closeMsgMenu();
+    else if (!$('stkEditor').classList.contains('hidden')) $('stkCancel').click();
     else if (!$('stCompose').classList.contains('hidden')) $('stComposeClose').click();
     else if (!$('viewer').classList.contains('hidden')) $('viewer').classList.add('hidden');
     else if (!$('modal').classList.contains('hidden')) closeModal();
     else if (!$('emojiPanel').classList.contains('hidden')) hideEmoji();
+    else if (pendingReply) clearReply();
   });
 
   $('redeemForm').onsubmit = (e) => {
@@ -3245,7 +3534,7 @@
   //  - Pro Nachricht: Einmal-Schlüssel (ECDH) -> HKDF -> AES-256-GCM, Absender signiert alles
   const relay = (() => {
     const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
-    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss', 'hreq']);
+    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss', 'hreq', 'mact']);
     // Push aufs Handy nur für echte Nachrichten und Reaktionen (Profil, Gruppen-Abgleich, Bestätigungen usw. still)
     const PUSH_TYPES = new Set(['msg', 'gmsg', 'sreact', 'callmiss']);
     const te = new TextEncoder(), td = new TextDecoder();
