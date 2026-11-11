@@ -5,6 +5,7 @@
   'use strict';
 
   const ID_PREFIX = 'chatbox-v1-';
+  const LOGIN_PREFIX = 'chatbox-login-'; // vorübergehende Peer-ID eines Geräts, das sich anmelden will
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne 0/O/1/I
   const CODE_RE = /^[A-Z0-9]{6}$/;
   const RETRY_MS = 10000;
@@ -21,12 +22,14 @@
   const $ = (id) => document.getElementById(id);
 
   // ================= Speicher =================
+  let loggedOut = false; // Konto ist auf ein anderes Gerät umgezogen: nichts mehr speichern
   const store = {
     load(key, fallback) {
       try { const v = localStorage.getItem('chatbox.' + key); return v ? JSON.parse(v) : fallback; }
       catch { return fallback; }
     },
     save(key, value) {
+      if (loggedOut) return;
       try { localStorage.setItem('chatbox.' + key, JSON.stringify(value)); } catch (e) { console.error(e); }
     },
   };
@@ -44,6 +47,7 @@
       r.onerror = () => rej(r.error);
     }));
     const run = async (name, mode, fn) => {
+      if (loggedOut && mode === 'readwrite') return undefined;
       const d = await open();
       return new Promise((res, rej) => {
         const t = d.transaction(name, mode);
@@ -53,6 +57,13 @@
       });
     };
     return {
+      keys: (s) => run(s, 'readonly', (st) => st.getAllKeys()),
+      // Ganze Datenbank löschen (Abmelden nach dem Konto-Umzug)
+      destroy: async () => {
+        try { (await open()).close(); } catch {}
+        dbp = null;
+        await new Promise((res) => { const r = indexedDB.deleteDatabase('chatbox'); r.onsuccess = r.onerror = r.onblocked = () => res(); });
+      },
       get: (s, k) => run(s, 'readonly', (st) => st.get(k)),
       put: (s, k, v) => run(s, 'readwrite', (st) => st.put(v, k)),
       del: (s, k) => run(s, 'readwrite', (st) => st.delete(k)),
@@ -260,7 +271,11 @@
     if (old) { try { old.destroy(); } catch {} }
     // Ereignisse eines alten, ersetzten Peers ignorieren
     p.on('open', () => { if (p !== peer) return; setNet(true); connectAll(); });
-    p.on('connection', (conn) => { if (p === peer) setupConn(conn, false); else conn.close(); });
+    p.on('connection', (conn) => {
+      if (p !== peer) { conn.close(); return; }
+      if (conn.peer.startsWith(LOGIN_PREFIX)) login.incoming(conn); // neues Gerät will sich anmelden
+      else setupConn(conn, false);
+    });
     p.on('call', (mc) => { if (p === peer) calls.incoming(mc); else mc.close(); });
     p.on('disconnected', () => {
       if (p !== peer) return;
@@ -1155,6 +1170,7 @@
   function openModal(build) {
     const box = $('modalBox');
     box.replaceChildren();
+    delete box.dataset.owner;
     build(box);
     $('modal').classList.remove('hidden');
   }
@@ -3193,19 +3209,52 @@
     const cat = (...p) => { const o = new Uint8Array(p.reduce((n, x) => n + x.length, 0)); let i = 0; p.forEach((x) => { o.set(x, i); i += x.length; }); return o; };
     const pubJwk = (k) => (k && k.kty === 'EC' && k.crv === 'P-256' && typeof k.x === 'string' && typeof k.y === 'string' && !k.d ? { kty: 'EC', crv: 'P-256', x: k.x, y: k.y } : null);
 
+    async function newIdentity() {
+      const s = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+      const e = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+      return {
+        signPriv: s.privateKey, encPriv: e.privateKey,
+        signPub: pubJwk(await crypto.subtle.exportKey('jwk', s.publicKey)),
+        encPub: pubJwk(await crypto.subtle.exportKey('jwk', e.publicKey)),
+      };
+    }
     async function loadKeys() {
       let k = await db.get('keys', 'identity').catch(() => null);
       if (!k) {
-        const s = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
-        const e = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
-        k = {
-          signPriv: s.privateKey, encPriv: e.privateKey,
-          signPub: pubJwk(await crypto.subtle.exportKey('jwk', s.publicKey)),
-          encPub: pubJwk(await crypto.subtle.exportKey('jwk', e.publicKey)),
-        };
+        k = await newIdentity();
         await db.put('keys', 'identity', k);
       }
       ident = k;
+    }
+    const rotateText = (code, ts, s, e) => `rotate|${code}|${ts}|${s.x}.${s.y}|${e.x}.${e.y}`;
+
+    // ---- Konto-Umzug (siehe login unten) ----
+    // Neues Gerät: eigene Schlüssel erzeugen und mit dem neuen Schlüssel unterschreiben
+    async function rotationRequest(code, k) {
+      const ts = Date.now();
+      const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, k.signPriv, te.encode(rotateText(code, ts, k.signPub, k.encPub)));
+      return { sign: k.signPub, enc: k.encPub, ts, sigNew: b64u(sig) };
+    }
+    // Altes Gerät: Umzug mit dem bisherigen Schlüssel bestätigen und beim Server eintragen.
+    // 'off' = Briefkasten ist ausgeschaltet, es gibt nichts umzustellen.
+    async function rotate(r) {
+      if (!enabled()) return 'off';
+      const s = pubJwk(r && r.sign), e = pubJwk(r && r.enc), ts = Number(r && r.ts);
+      if (!s || !e || !Number.isFinite(ts) || typeof r.sigNew !== 'string') throw new Error('Ungültige Schlüssel vom neuen Gerät');
+      if (!ident) await loadKeys();
+      const sig = await sign(rotateText(me.code, ts, s, e));
+      await post(`/v1/rotate/${me.code}`, { sign: s, enc: e, ts, sig, sigNew: r.sigNew });
+      ready = false; // Ab jetzt gehört der Briefkasten dem neuen Gerät
+      return 'ok';
+    }
+    // Neues Gerät: Sind beim Server schon unsere neuen Schlüssel eingetragen?
+    async function serverHasKey(code, signPub, baseUrl) {
+      try {
+        const res = await fetch(`${baseUrl || url()}/v1/keys/${code}`);
+        if (!res.ok) return false;
+        const k = await res.json();
+        return !!(k.sign && k.sign.x === signPub.x && k.sign.y === signPub.y);
+      } catch { return false; }
     }
     async function sign(text) {
       return b64u(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, ident.signPriv, te.encode(text)));
@@ -3225,9 +3274,10 @@
     }
 
     // Schlüssel eines Kontakts: zuerst die direkt (per Hello) übermittelten, sonst vom Server
-    async function keysOf(code) {
+    // fresh = gespeicherte Schlüssel ignorieren (z. B. weil der Kontakt das Gerät gewechselt hat)
+    async function keysOf(code, fresh) {
       const c = contacts[code];
-      if (c && c.keys && c.keys.sign && c.keys.enc) return c.keys;
+      if (!fresh && c && c.keys && c.keys.sign && c.keys.enc) return c.keys;
       const res = await fetch(`${url()}/v1/keys/${code}`);
       if (res.status === 404) { known[code] = false; return null; }
       if (!res.ok) throw new Error('Schlüssel nicht erreichbar');
@@ -3259,10 +3309,16 @@
       if (env.length < 143 || env[0] !== 1) return null;
       const head = env.subarray(0, 78), epk = env.subarray(1, 66), iv = env.subarray(66, 78);
       const sig = env.subarray(78, 142), ct = env.subarray(142);
-      const keys = await keysOf(from);
-      if (!keys) return null;
-      const vkey = await crypto.subtle.importKey('jwk', keys.sign, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-      if (!(await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, vkey, sig, cat(head, ct)))) return null; // gefälscht
+      const ok = async (keys) => {
+        if (!keys) return false;
+        const vkey = await crypto.subtle.importKey('jwk', keys.sign, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+        return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, vkey, sig, cat(head, ct));
+      };
+      if (!(await ok(await keysOf(from)))) {
+        // Vielleicht ist der Absender auf ein neues Gerät umgezogen: aktuelle Schlüssel vom Server holen
+        const cur = await keysOf(from, true).catch(() => null);
+        if (!(await ok(cur))) return null; // gefälscht
+      }
       const theirs = await crypto.subtle.importKey('raw', epk, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
       const shared = await crypto.subtle.deriveBits({ name: 'ECDH', public: theirs }, ident.encPriv, 256);
       const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await aesFrom(shared, epk), ct);
@@ -3381,6 +3437,7 @@
 
     return {
       start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus,
+      newIdentity, rotationRequest, rotate, serverHasKey, enabled, url,
       canSend: (code) => ready && enabled() && known[code] !== false,
       publicKeys: () => (ident ? { sign: ident.signPub, enc: ident.encPub } : null),
       // Direkt (per Verbindung) erhaltene Schlüssel merken
@@ -3391,6 +3448,393 @@
         if (c) { c.keys = keys; known[code] = true; }
       },
     };
+  })();
+
+  // ================= Auf einem neuen Gerät anmelden (Konto-Umzug) =================
+  // Das neue Gerät verbindet sich mit einer vorübergehenden Peer-ID mit dem Konto-Code.
+  // Das alte Gerät zeigt einen 6-stelligen Bestätigungscode, der auf dem neuen eingegeben wird
+  // (wie eine Zwei-Faktor-Bestätigung). Danach überträgt das alte Gerät alle Daten, der
+  // Briefkasten-Server bekommt die Schlüssel des neuen Geräts und das alte meldet sich ab.
+  // Abmelden ist nötig, weil ein Code (= Peer-ID) immer nur auf einem Gerät online sein kann.
+  //
+  // Ablauf (neu -> alt / alt -> neu):
+  //   lreq -> | <- lwait (Code wird angezeigt) | lcode -> | <- lok / lwrong / lfail
+  //   lkeys (neue Schlüssel) -> | <- lls (Profil & Einstellungen) | <- lidb … / lack -> (Chats & Bilder)
+  //   <- lend | lstored -> | (altes Gerät stellt den Briefkasten um) <- ldone / lerr | lbye ->
+  const login = (() => {
+    const VERIFY_TTL = 5 * 60 * 1000;
+    const MAX_TRIES = 3;
+    const BLOCK_MS = 10 * 60 * 1000;
+    const DEVICES = { pc: 'Windows-PC', web: 'Browser', ios: 'iPhone/iPad' };
+    const LS_PREFIX = 'chatbox.';
+    const IDB_STORES = ['chats', 'media'];
+    const LS_KEY_RE = /^[A-Za-z]{1,40}$/;
+    const digits = () => Array.from(crypto.getRandomValues(new Uint32Array(6)), (n) => n % 10).join('');
+    const hex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('');
+    const safeSend = (conn, d) => { try { conn.send(d); } catch {} };
+    const closeSoon = (conn) => setTimeout(() => { try { conn.close(); } catch {} }, 800);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // ---------------- Altes Gerät (hier ist das Konto angemeldet) ----------------
+    let session = null;
+    let blockedUntil = 0;
+
+    function waitFor(s, t, ms) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { delete s.waits[t]; reject(new Error('Zeitüberschreitung')); }, ms);
+        s.waits[t] = { resolve: (v) => { clearTimeout(timer); delete s.waits[t]; resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } };
+      });
+    }
+
+    function modal(build) {
+      openModal((box) => { box.dataset.owner = 'login'; build(box); });
+    }
+    function closeOwnModal() { if ($('modalBox').dataset.owner === 'login') closeModal(); }
+
+    function showCode(s) {
+      modal((box) => {
+        box.appendChild(el('h3', '', 'Anmeldung auf neuem Gerät'));
+        box.appendChild(el('p', '', `Jemand möchte sich auf einem ${s.device} mit deinem Konto anmelden. Wenn du das bist, gib dort diesen Bestätigungscode ein:`));
+        box.appendChild(el('div', 'login-code', s.code.slice(0, 3) + ' ' + s.code.slice(3)));
+        box.appendChild(el('p', 'muted', 'Gib den Code niemals an jemand anderen weiter. Danach zieht dein Konto mit allen Chats auf das neue Gerät um und dieses Gerät wird abgemeldet. Der Code gilt 5 Minuten.'));
+        box.appendChild(buttons(['Das war ich nicht', 'ghost', () => {
+          safeSend(s.conn, { t: 'lfail', why: 'denied' });
+          endA(null, BLOCK_MS);
+          toast('Anmeldung abgelehnt');
+        }], ['OK', 'primary', closeModal]));
+      });
+    }
+    function showProgress(s, text) {
+      if (!s.progress) {
+        modal((box) => {
+          box.appendChild(el('h3', '', 'Konto wird übertragen'));
+          s.progress = el('p', '', text);
+          box.appendChild(s.progress);
+          box.appendChild(el('p', 'muted', 'Lass WhatsUp auf beiden Geräten geöffnet, bis die Übertragung fertig ist.'));
+        });
+      }
+      s.progress.textContent = text;
+    }
+    function showEnd(text) {
+      modal((box) => {
+        box.appendChild(el('h3', '', 'Anmeldung auf neuem Gerät'));
+        box.appendChild(el('p', '', text));
+        box.appendChild(buttons(['OK', 'primary', closeModal]));
+      });
+    }
+
+    function endA(msg, block = 0) {
+      const s = session;
+      if (!s) return;
+      session = null;
+      clearTimeout(s.timer);
+      if (block) blockedUntil = Date.now() + block;
+      Object.values(s.waits).forEach((w) => w.reject(new Error('abgebrochen')));
+      closeSoon(s.conn);
+      if (msg) showEnd(msg); else closeOwnModal();
+    }
+
+    function incoming(conn) {
+      conn.on('data', (d) => onA(conn, d).catch((e) => {
+        console.error('Anmeldung:', e);
+        if (session && session.conn === conn) { safeSend(conn, { t: 'lerr', msg: String(e.message || e).slice(0, 120) }); endA('Die Übertragung ist fehlgeschlagen. Dein Konto bleibt auf diesem Gerät.'); }
+      }));
+      const gone = () => {
+        if (!session || session.conn !== conn) return;
+        if (session.finishing) { Object.values(session.waits).forEach((w) => w.reject(new Error('getrennt'))); return; }
+        endA(session.ok ? 'Die Verbindung zum neuen Gerät wurde unterbrochen. Dein Konto bleibt auf diesem Gerät.' : null);
+      };
+      conn.on('close', gone);
+      conn.on('error', gone);
+    }
+
+    async function onA(conn, d) {
+      if (!d || typeof d !== 'object') return;
+      if (d.t === 'lreq') {
+        if (!me || session || Date.now() < blockedUntil) { safeSend(conn, { t: 'lbusy' }); closeSoon(conn); return; }
+        const s = session = { conn, code: digits(), tries: 0, ok: false, waits: {}, device: DEVICES[d.device] || 'anderen Gerät' };
+        s.timer = setTimeout(() => {
+          if (session !== s || s.ok) return;
+          safeSend(conn, { t: 'lfail', why: 'expired' });
+          endA(null, 60 * 1000);
+        }, VERIFY_TTL);
+        showCode(s);
+        // Den Code selbst nicht in die Windows-Benachrichtigung (wäre z. B. auf dem Sperrbildschirm sichtbar)
+        notify('Anmeldung auf neuem Gerät', 'Öffne WhatsUp, um den Bestätigungscode zu sehen.');
+        safeSend(conn, { t: 'lwait' });
+        return;
+      }
+      const s = session;
+      if (!s || s.conn !== conn) return;
+      if (d.t === 'lcode' && !s.ok) {
+        if (String(d.code || '') === s.code) {
+          s.ok = true;
+          clearTimeout(s.timer);
+          showProgress(s, 'Bestätigt. Warte auf das neue Gerät…');
+          safeSend(conn, { t: 'lok' });
+        } else if (++s.tries >= MAX_TRIES) {
+          safeSend(conn, { t: 'lfail', why: 'tries' });
+          endA('Auf dem anderen Gerät wurde mehrmals ein falscher Code eingegeben. Anmeldungen sind jetzt für 10 Minuten gesperrt.', BLOCK_MS);
+        } else safeSend(conn, { t: 'lwrong', left: MAX_TRIES - s.tries });
+        return;
+      }
+      if (d.t === 'lkeys' && s.ok && !s.started) { s.started = true; await transfer(s, d.keys); return; }
+      if (s.waits[d.t]) s.waits[d.t].resolve(d);
+    }
+
+    async function transfer(s, keys) {
+      const conn = s.conn;
+      showProgress(s, 'Konto wird übertragen…');
+      await relay.poll(); // Wartende Offline-Nachrichten noch abholen, damit sie mit umziehen
+      if (session !== s) return;
+      saveMeta();
+      const ls = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(LS_PREFIX)) ls[k.slice(LS_PREFIX.length)] = localStorage.getItem(k);
+      }
+      const mediaIds = await db.keys('media');
+      const chatIds = Object.keys(chats); // aus dem Speicher: aktueller als die Datenbank
+      const total = mediaIds.length + chatIds.length;
+      safeSend(conn, { t: 'lls', ls, total });
+      let n = 0;
+      const step = async (store, key, value) => {
+        if (session !== s) throw new Error('abgebrochen');
+        if (value != null) {
+          conn.send({ t: 'lidb', store, key, value });
+          await waitFor(s, 'lack', 120000);
+        }
+        n++;
+        showProgress(s, `Konto wird übertragen… ${total ? Math.floor((n / total) * 100) : 100} %`);
+      };
+      for (const id of mediaIds) await step('media', id, await db.get('media', id).catch(() => null));
+      for (const id of chatIds) await step('chats', id, chats[id]);
+      conn.send({ t: 'lend' });
+      await waitFor(s, 'lstored', 120000);
+
+      // Briefkasten auf die Schlüssel des neuen Geräts umstellen
+      showProgress(s, 'Fast fertig…');
+      let r;
+      try { r = await relay.rotate(keys); }
+      catch (e) {
+        console.error('Briefkasten umstellen:', e);
+        safeSend(conn, { t: 'lerr', msg: 'Der Briefkasten-Server konnte nicht umgestellt werden.' });
+        endA('Der Briefkasten-Server konnte nicht umgestellt werden. Dein Konto bleibt auf diesem Gerät.');
+        return;
+      }
+      s.finishing = true;
+      safeSend(conn, { t: 'ldone' });
+      const bye = await waitFor(s, 'lbye', 20000).then(() => true, () => false);
+      // Ohne Bestätigung nur abmelden, wenn der Briefkasten schon umgestellt ist
+      // (dann kann das neue Gerät selbst prüfen, dass der Umzug geklappt hat).
+      if (!bye && r !== 'ok') {
+        endA('Das neue Gerät hat nicht geantwortet. Dein Konto bleibt vorsichtshalber auch auf diesem Gerät angemeldet.');
+        return;
+      }
+      await logout();
+    }
+
+    // Dieses Gerät abmelden: Peer schließen, alle Daten löschen, neu laden (zeigt die Einrichtung)
+    async function logout() {
+      loggedOut = true;
+      try { if (peer) peer.destroy(); } catch {}
+      for (const k of Object.keys(localStorage)) if (k.startsWith(LS_PREFIX)) localStorage.removeItem(k);
+      await db.destroy();
+      localStorage.setItem(LS_PREFIX + 'movedNotice', JSON.stringify(Date.now()));
+      window.chatboxWindow.reload();
+    }
+
+    // ---------------- Neues Gerät (hier wird die Anmeldung gestartet) ----------------
+    let b = null;
+
+    function deviceKind() {
+      if (!document.documentElement.classList.contains('is-web')) return 'pc';
+      return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) ? 'ios' : 'web';
+    }
+
+    function setStatusB(text, err) {
+      const st = $('loginStatus');
+      st.textContent = text || '';
+      st.classList.toggle('err', !!err);
+    }
+    // Ansicht: 'code' (Konto-Code eingeben), 'wait' (verbinden), 'verify' (Bestätigungscode), 'busy' (Übertragung)
+    function uiB(stage) {
+      const code = $('loginCode'), ver = $('loginVerify'), btn = $('loginBtn');
+      code.disabled = stage !== 'code';
+      ver.classList.toggle('hidden', stage !== 'verify' && stage !== 'busy');
+      ver.disabled = stage !== 'verify';
+      btn.disabled = stage === 'wait' || stage === 'busy';
+      btn.textContent = stage === 'verify' ? 'Bestätigen' : 'Weiter';
+      $('loginBack').disabled = stage === 'busy';
+      if (stage === 'code') code.focus();
+      if (stage === 'verify') { ver.value = ''; ver.focus(); }
+    }
+
+    async function cleanupB(wipe) {
+      const cur = b;
+      b = null;
+      if (!cur) return;
+      clearTimeout(cur.timer);
+      try { cur.peer.destroy(); } catch {}
+      if (wipe && cur.received) await db.destroy(); // halb übertragene Chats wegwerfen
+    }
+    function failB(text) {
+      if (!b) return;
+      cleanupB(true);
+      setStatusB(text, true);
+      uiB('code');
+    }
+
+    async function startB(raw) {
+      const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!CODE_RE.test(code)) { setStatusB('Gib deinen 6-stelligen Code ein (steht in WhatsUp oben unter deinem Namen).', true); return; }
+      if (me) return;
+      await db.destroy(); // Reste eines abgebrochenen Versuchs entfernen (ohne Konto gibt es hier nichts anderes)
+      const tmp = new Peer(LOGIN_PREFIX + hex(12), { debug: 0 });
+      const cur = b = { peer: tmp, code, stage: 'wait', ls: null, n: 0, total: 0, received: false };
+      uiB('wait');
+      setStatusB('Verbinde mit deinem Konto…');
+      cur.timer = setTimeout(() => { if (b === cur) failB('Keine Antwort. Ist WhatsUp auf deinem anderen Gerät geöffnet und auf dem neuesten Stand?'); }, 25000);
+      tmp.on('open', () => {
+        if (b !== cur) return;
+        const conn = cur.conn = tmp.connect(peerIdOf(code), { reliable: true });
+        conn.on('open', () => conn.send({ t: 'lreq', v: 1, device: deviceKind() }));
+        conn.on('data', (d) => { if (b === cur) onB(cur, d).catch((e) => { console.error('Anmeldung:', e); failB('Fehler bei der Übertragung: ' + (e.message || e)); }); });
+        const gone = () => { if (b === cur) closedB(cur); };
+        conn.on('close', gone);
+        conn.on('error', gone);
+      });
+      tmp.on('error', (err) => {
+        if (b !== cur) return;
+        if (err.type === 'peer-unavailable') failB('Dein Konto ist gerade auf keinem Gerät online. Öffne WhatsUp auf deinem anderen Gerät und versuch es nochmal.');
+        else failB('Verbindung fehlgeschlagen. Prüfe deine Internetverbindung.');
+      });
+    }
+
+    async function onB(cur, d) {
+      if (!d || typeof d !== 'object') return;
+      const conn = cur.conn;
+      switch (d.t) {
+        case 'lwait':
+          clearTimeout(cur.timer);
+          cur.stage = 'verify';
+          uiB('verify');
+          setStatusB('Auf deinem anderen Gerät wird jetzt ein Bestätigungscode angezeigt. Gib ihn hier ein.');
+          break;
+        case 'lbusy':
+          failB('Dein anderes Gerät nimmt gerade keine Anmeldung an (es läuft schon eine, oder sie ist nach falschen Codes kurz gesperrt). Versuch es später nochmal.');
+          break;
+        case 'lwrong': {
+          const left = Math.max(0, Number(d.left) || 0);
+          uiB('verify');
+          setStatusB(`Falscher Code. Noch ${left} ${left === 1 ? 'Versuch' : 'Versuche'}.`, true);
+          break;
+        }
+        case 'lfail':
+          failB(d.why === 'tries' ? 'Zu viele falsche Codes. Versuch es in 10 Minuten nochmal.'
+            : d.why === 'denied' ? 'Die Anmeldung wurde auf deinem anderen Gerät abgelehnt.'
+            : 'Der Bestätigungscode ist abgelaufen. Versuch es nochmal.');
+          break;
+        case 'lok': {
+          cur.stage = 'transfer';
+          uiB('busy');
+          setStatusB('Bestätigt! Dein Konto wird übertragen…');
+          cur.ident = await relay.newIdentity();
+          conn.send({ t: 'lkeys', keys: await relay.rotationRequest(cur.code, cur.ident) });
+          break;
+        }
+        case 'lls': {
+          if (cur.stage !== 'transfer' || !d.ls || typeof d.ls !== 'object') return;
+          const ls = {};
+          for (const [k, v] of Object.entries(d.ls)) if (LS_KEY_RE.test(k) && typeof v === 'string') ls[k] = v;
+          let acct = null;
+          try { acct = JSON.parse(ls.me || 'null'); } catch {}
+          if (!acct || acct.code !== cur.code) throw new Error('Unerwartete Kontodaten');
+          cur.ls = ls;
+          cur.total = Math.max(0, Number(d.total) || 0);
+          break;
+        }
+        case 'lidb':
+          if (!cur.ls || !IDB_STORES.includes(d.store) || typeof d.key !== 'string') return;
+          cur.received = true;
+          await db.put(d.store, d.key, d.value);
+          cur.n++;
+          setStatusB(`Dein Konto wird übertragen… ${cur.total ? Math.min(100, Math.floor((cur.n / cur.total) * 100)) : 100} %`);
+          conn.send({ t: 'lack' });
+          break;
+        case 'lend':
+          if (!cur.ls) return;
+          cur.stage = 'stored';
+          setStatusB('Fast fertig…');
+          conn.send({ t: 'lstored' });
+          break;
+        case 'lerr':
+          failB('Der Umzug ist fehlgeschlagen. Dein Konto bleibt auf dem anderen Gerät.');
+          break;
+        case 'ldone':
+          if (cur.stage !== 'stored') return;
+          await finishB(cur);
+          break;
+      }
+    }
+
+    // Verbindung weg, nachdem alles übertragen war: Hat das alte Gerät den Briefkasten schon umgestellt?
+    async function closedB(cur) {
+      if (cur.stage === 'wait') { failB('Dein anderes Gerät hat die Anmeldung nicht angenommen. Ist dort die neueste WhatsUp-Version installiert?'); return; }
+      if (cur.stage !== 'stored') { failB('Die Verbindung zu deinem anderen Gerät wurde unterbrochen. Versuch es nochmal.'); return; }
+      let base = null;
+      try { base = JSON.parse(cur.ls.relayUrl || 'null'); } catch {}
+      if (await relay.serverHasKey(cur.code, cur.ident.signPub, base || undefined)) await finishB(cur);
+      else failB('Die Verbindung zu deinem anderen Gerät wurde unterbrochen. Versuch es nochmal.');
+    }
+
+    async function finishB(cur) {
+      if (cur.finished) return;
+      cur.finished = true;
+      for (const [k, v] of Object.entries(cur.ls)) localStorage.setItem(LS_PREFIX + k, v);
+      localStorage.removeItem(LS_PREFIX + 'movedNotice');
+      await db.put('keys', 'identity', cur.ident);
+      setStatusB('Geschafft! WhatsUp startet…');
+      safeSend(cur.conn, { t: 'lbye' });
+      await sleep(600); // Zeit für das „Tschüss“ ans alte Gerät
+      clearTimeout(cur.timer);
+      try { cur.peer.destroy(); } catch {}
+      window.chatboxWindow.reload();
+    }
+
+    function submitB() {
+      if (!b) { startB($('loginCode').value); return; }
+      if (b.stage !== 'verify' || !b.conn) return;
+      const code = $('loginVerify').value.replace(/\D/g, '');
+      if (code.length !== 6) { setStatusB('Der Bestätigungscode hat 6 Ziffern.', true); $('loginVerify').focus(); return; }
+      uiB('wait');
+      setStatusB('Prüfe…');
+      safeSend(b.conn, { t: 'lcode', code });
+    }
+
+    // Einrichtung: „Ich habe schon ein Konto“
+    $('setupLoginLink').onclick = () => {
+      $('setupNew').classList.add('hidden');
+      $('setupLogin').classList.remove('hidden');
+      setStatusB('');
+      uiB('code');
+    };
+    $('loginBack').onclick = () => {
+      cleanupB(true);
+      $('setupLogin').classList.add('hidden');
+      $('setupNew').classList.remove('hidden');
+      $('setupName').focus();
+    };
+    $('loginBtn').onclick = submitB;
+    ['loginCode', 'loginVerify'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') submitB(); }));
+
+    // Hinweis nach dem Abmelden auf dem alten Gerät
+    if (store.load('movedNotice', null)) {
+      localStorage.removeItem(LS_PREFIX + 'movedNotice');
+      $('setupMoved').classList.remove('hidden');
+    }
+
+    return { incoming };
   })();
 
   // ================= Start =================

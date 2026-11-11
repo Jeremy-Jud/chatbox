@@ -33,6 +33,7 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 - Beim Server ist zu jedem Code der Schlüssel hinterlegt (beim ersten Kontakt, danach unveränderbar). Senden, Abholen, Löschen und Push-Anmeldung erfordern eine frische Signatur (max. 10 Minuten alt). Pro Absender gilt ein Mengenlimit, pro Briefkasten eine Größenbegrenzung.
 - Web-Push (RFC 8291/8292) enthält nur den Absender-Code, keinen Nachrichteninhalt.
 - Status-Updates werden genauso Ende-zu-Ende-verschlüsselt verteilt wie Nachrichten. Nur Nachrichten, Reaktionen und Freundschaftsanfragen lösen einen Push aus. Alles andere (Profil- und Gruppen-Abgleich, Status, Bestätigungen) wird still zugestellt; der Server sieht dabei nur, dass die Zustellung still sein soll.
+- **Anmelden auf einem neuen Gerät (Konto-Umzug):** Das neue Gerät verbindet sich über WebRTC mit dem bisherigen Gerät. Dort wird ein zufälliger 6-stelliger Bestätigungscode angezeigt (nicht in der Windows-Benachrichtigung), der auf dem neuen Gerät eingegeben werden muss. Höchstens 3 Versuche, Gültigkeit 5 Minuten, danach Sperre. Erst dann werden die Daten übertragen. Der Briefkasten-Server übernimmt die neuen Schlüssel nur, wenn der bisherige Schlüssel (alter Besitzer) und der neue Schlüssel (Besitz-Nachweis) den Wechsel signiert haben (`/v1/rotate`). Push-Abos des alten Geräts werden dabei gelöscht. Das alte Gerät löscht danach alle lokalen Daten.
 - Die Oberfläche läuft mit `contextIsolation`, `sandbox` und ohne `nodeIntegration`. Dazu kommen eine strenge Content Security Policy, gesperrte Navigation und ein Berechtigungsfilter.
 - Alle empfangenen Texte werden als reiner Text angezeigt (kein HTML), was XSS verhindert.
 
@@ -45,4 +46,6 @@ Du bekommst so schnell wie möglich eine Rückmeldung. Nach dem Fix wird die Lü
 - Chatpartner sehen bei einer direkten Verbindung gegenseitig ihre IP-Adresse.
 - Der lokale Chatverlauf wird unverschlüsselt im Benutzerprofil gespeichert.
 - Der Briefkasten-Server sieht Metadaten: Absender- und Empfänger-Code, Zeitpunkt, Größe und IP-Adressen. Schlüssel werden beim ersten Kontakt ohne zusätzliche Bestätigung übernommen („trust on first use“). Ein Server, der von Anfang an bösartig ist, könnte also einen falschen Schlüssel ausliefern, bevor sich zwei Geräte direkt verbunden haben.
+- Wer den Bestätigungscode vom bisherigen Gerät bekommt (z. B. durch einen Trick: „Schick mir mal den Code“), kann das Konto übernehmen. Die App warnt davor.
+- Nachrichten, die Freunde über den Briefkasten schicken, bevor sie vom Umzug erfahren haben, sind noch für den alten Schlüssel verschlüsselt und können auf dem neuen Gerät nicht gelesen werden. Das Zeitfenster ist kurz, weil das neue Gerät beim Start allen Freunden seine neuen Schlüssel schickt.
 - Die `.exe` ist nicht code-signiert. Prüfe die SHA-256-Prüfsumme aus dem Release.

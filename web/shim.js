@@ -58,6 +58,7 @@
   window.chatboxWindow = {
     minimize: noop,
     close: noop,
+    reload: () => location.reload(),
     togglePin: () => Promise.resolve(false),
     isPinned: () => Promise.resolve(false),
     flash: noop,

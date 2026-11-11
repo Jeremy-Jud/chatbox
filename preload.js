@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('chatboxWindow', {
   minimize: () => ipcRenderer.send('win:minimize'),
   close: () => ipcRenderer.send('win:close'),
+  reload: () => ipcRenderer.send('win:reload'),
   togglePin: () => ipcRenderer.invoke('win:togglePin'),
   isPinned: () => ipcRenderer.invoke('win:isPinned'),
   flash: () => ipcRenderer.send('win:flash'),

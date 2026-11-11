@@ -150,6 +150,8 @@ app.on('before-quit', () => { quitting = true; });
 
 // ---------- Fenster ----------
 ipcMain.on('win:minimize', () => win && win.minimize());
+// Neu laden nach dem Konto-Umzug (location.reload() wird von der Navigationssperre blockiert)
+ipcMain.on('win:reload', (e) => { if (win && e.sender === win.webContents) win.webContents.reload(); });
 ipcMain.on('win:close', () => win && win.close());
 ipcMain.handle('win:togglePin', () => {
   if (!win) return false;

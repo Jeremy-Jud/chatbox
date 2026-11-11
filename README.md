@@ -101,6 +101,19 @@ Mit **Test senden** kommt nach 5 Sekunden ein echter Test-Push über den Server.
 6. **Erfolge:** Über 🏆 oben rechts siehst du alle Erfolge und deinen Fortschritt.
 7. **Infos & Entfernen:** Im Chat oben auf den Namen klicken. Dort kannst du Freunde entfernen oder Gruppen verwalten.
 
+## 🔑 Auf einem neuen Gerät anmelden
+
+Du hast schon ein Konto und willst WhatsUp auf einem anderen PC oder im Browser nutzen?
+
+1. Auf dem neuen Gerät **„Ich habe schon ein Konto“** wählen und deinen Code eingeben.
+2. Auf deinem bisherigen Gerät (WhatsUp muss dort geöffnet sein) erscheint ein **6-stelliger Bestätigungscode**.
+3. Diesen Code auf dem neuen Gerät eingeben. Fertig: Profil, Freunde, Gruppen, Chats und Bilder ziehen mit um.
+
+Gut zu wissen:
+- Dein Konto kann immer nur auf **einem** Gerät gleichzeitig angemeldet sein. Das bisherige Gerät wird nach dem Umzug abgemeldet.
+- Gib den Bestätigungscode **niemals** an jemand anderen weiter. Wer ihn hat, übernimmt dein Konto.
+- Nach 3 falschen Codes oder bei „Das war ich nicht“ sind Anmeldungen 10 Minuten gesperrt. Der Code gilt 5 Minuten.
+
 ## 📬 Offline-Zustellung
 
 Sind beide online, gehen Nachrichten wie bisher **direkt von Gerät zu Gerät**.

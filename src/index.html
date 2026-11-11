@@ -48,11 +48,23 @@
 
   <!-- Erster Start -->
   <section id="viewSetup" class="view hidden">
-    <div class="setup">
+    <div class="setup" id="setupNew">
       <img src="assets/logo.png" class="logo" alt="WhatsUp-Logo">
       <h1>WhatsUp</h1>
+      <p id="setupMoved" class="muted hidden">Dein Konto ist auf ein anderes Gerät umgezogen. Auf diesem Gerät bist du abgemeldet.</p>
       <input id="setupName" maxlength="24" placeholder="Dein Name" autocomplete="off">
       <button id="setupBtn" class="primary">Weiter</button>
+      <button id="setupLoginLink" class="ghost" type="button">Ich habe schon ein Konto</button>
+    </div>
+    <div class="setup hidden" id="setupLogin">
+      <img src="assets/logo.png" class="logo" alt="WhatsUp-Logo">
+      <h1>Anmelden</h1>
+      <p class="muted">Gib den Code deines Kontos ein. WhatsUp muss dafür auf deinem anderen Gerät geöffnet sein.</p>
+      <input id="loginCode" maxlength="9" placeholder="Dein Code" autocomplete="off" spellcheck="false">
+      <input id="loginVerify" class="hidden" maxlength="7" placeholder="Bestätigungscode" inputmode="numeric" autocomplete="one-time-code">
+      <button id="loginBtn" class="primary">Weiter</button>
+      <div id="loginStatus" class="status" role="status"></div>
+      <button id="loginBack" class="ghost" type="button">Zurück</button>
     </div>
   </section>
 

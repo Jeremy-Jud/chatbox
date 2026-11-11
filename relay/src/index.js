@@ -92,6 +92,7 @@ export class Mailbox {
     try {
       switch (action) {
         case 'register': return this.register(code, await req.json());
+        case 'rotate': return this.rotate(code, await req.json());
         case 'keys': {
           const k = this.keys();
           return k ? json({ sign: k.sign, enc: k.enc }) : fail(404, 'unknown');
@@ -119,6 +120,21 @@ export class Mailbox {
     const old = this.keys();
     if (old && (old.sign.x !== sign.x || old.sign.y !== sign.y)) return fail(409, 'code taken');
     this.setMeta('keys', JSON.stringify({ sign, enc: encKey }));
+    await this.state.storage.setAlarm(Date.now() + 24 * 3600 * 1000);
+    return json({ ok: true });
+  }
+
+  // Konto zieht auf ein neues Gerät um: neue Schlüssel, bestätigt vom alten Schlüssel (sig)
+  // und vom neuen (sigNew, beweist den Besitz des neuen privaten Schlüssels).
+  async rotate(code, b) {
+    const sign = validJwk(b.sign), encKey = validJwk(b.enc);
+    if (!sign || !encKey || !freshTs(b.ts)) return fail(400, 'bad request');
+    const text = `rotate|${code}|${b.ts}|${sign.x}.${sign.y}|${encKey.x}.${encKey.y}`;
+    if (!(await verify(sign, b.sigNew, text))) return fail(403, 'bad signature');
+    const old = this.keys();
+    if (old && !(await verify(old.sign, b.sig, text))) return fail(403, 'forbidden');
+    this.setMeta('keys', JSON.stringify({ sign, enc: encKey }));
+    this.sql.exec('DELETE FROM subs'); // Push-Abos gehörten zum alten Gerät
     await this.state.storage.setAlarm(Date.now() + 24 * 3600 * 1000);
     return json({ ok: true });
   }
