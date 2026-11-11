@@ -7,9 +7,17 @@ compatibility_date = "2026-10-01"
 name = "MAILBOX"
 class_name = "Mailbox"
 
+[[durable_objects.bindings]]
+name = "ACHSTATS"
+class_name = "AchStats"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Mailbox"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AchStats"]
 
 [vars]
 # Absender-Angabe für Web-Push (VAPID)

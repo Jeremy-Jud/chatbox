@@ -15,6 +15,7 @@ const CHUNK = 1024 * 1024;                // SQLite-Zeilen bleiben unter 2 MB
 const TTL_MS = 30 * 24 * 3600 * 1000;
 const CLOCK_SKEW = 10 * 60 * 1000;
 const SEND_LIMIT_PER_MIN = 120;           // pro Absender und Empfänger
+const ACH_ID_RE = /^[a-z0-9_]{1,24}$/;   // Erfolgs-IDs wie 'msg100'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -54,6 +55,8 @@ export default {
     if (parts[0] !== 'v1') return fail(404, 'not found');
     if (parts[1] === 'health') return json({ ok: true });
     if (parts[1] === 'vapid') return json({ key: clean(env.VAPID_PUBLIC) || null });
+    // Wie viele Personen auf der Welt besitzen welchen Erfolg? (öffentlich, nur Zahlen)
+    if (parts[1] === 'achstats') return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/counts');
     const code = String(parts[2] || '').toUpperCase();
     if (!CODE_RE.test(code)) return fail(400, 'bad code');
     const stub = env.MAILBOX.get(env.MAILBOX.idFromName(code));
@@ -104,6 +107,7 @@ export class Mailbox {
         case 'push': return this.pushSub(code, await req.json());
         case 'pushtest': return this.pushTest(code, await req.json());
         case 'verify': return this.verifyFromOwner(code, await req.json()); // intern
+        case 'achreport': return this.achReport(code, await req.json());
         default: return fail(404, 'not found');
       }
     } catch (e) {
@@ -144,6 +148,15 @@ export class Mailbox {
     const keys = this.keys();
     if (!keys) return json({ ok: false });
     return json({ ok: await verify(keys.sign, b.sig, String(b.text || '')) });
+  }
+
+  // Eigene Erfolge melden (nur die IDs), damit gezählt werden kann, wie selten sie sind
+  async achReport(code, b) {
+    const ach = Array.isArray(b.ach) ? [...new Set(b.ach.map(String).filter((id) => ACH_ID_RE.test(id)))].slice(0, 100).sort() : [];
+    if (!(await this.ownerOk('achreport', code, b.ts, b.sig, `|${ach.join(',')}`))) return fail(403, 'forbidden');
+    const stats = this.env.ACHSTATS.get(this.env.ACHSTATS.idFromName('global'));
+    await stats.fetch('https://stats/set', { method: 'POST', body: JSON.stringify({ code, ach }) });
+    return json({ ok: true });
   }
 
   // Nachricht für diesen Briefkasten annehmen
@@ -257,6 +270,38 @@ export class Mailbox {
     const old = this.sql.exec('SELECT id FROM msgs WHERE ts < ?', Date.now() - TTL_MS).toArray();
     for (const r of old) { this.sql.exec('DELETE FROM chunks WHERE msg = ?', r.id); this.sql.exec('DELETE FROM msgs WHERE id = ?', r.id); }
     await this.state.storage.setAlarm(Date.now() + 24 * 3600 * 1000);
+  }
+}
+
+// ---------- Durable Object: weltweite Erfolgs-Statistik (eine einzige Instanz) ----------
+// Speichert pro Code nur, welche Erfolge freigeschaltet sind, und zählt sie zusammen.
+export class AchStats {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS owned (code TEXT, ach TEXT, PRIMARY KEY (code, ach))');
+    this.cache = null; // { at, body }
+  }
+
+  async fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === '/set') {
+      const { code, ach } = await req.json();
+      if (!CODE_RE.test(code) || !Array.isArray(ach)) return fail(400, 'bad request');
+      this.sql.exec('DELETE FROM owned WHERE code = ?', code);
+      for (const id of ach) if (ACH_ID_RE.test(id)) this.sql.exec('INSERT OR IGNORE INTO owned (code, ach) VALUES (?, ?)', code, id);
+      this.cache = null;
+      return json({ ok: true });
+    }
+    if (path === '/counts') {
+      if (!this.cache || Date.now() - this.cache.at > 60000) {
+        const counts = {};
+        for (const r of this.sql.exec('SELECT ach, COUNT(*) AS n FROM owned GROUP BY ach').toArray()) counts[r.ach] = r.n;
+        const players = this.sql.exec('SELECT COUNT(DISTINCT code) AS n FROM owned').toArray()[0].n;
+        this.cache = { at: Date.now(), body: JSON.stringify({ counts, players }) };
+      }
+      return new Response(this.cache.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS } });
+    }
+    return fail(404, 'not found');
   }
 }
 

@@ -236,6 +236,13 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .ach-list li:not(.got) .ach-icon { filter: grayscale(1); opacity: .3; }
 .ach-list li:not(.got) .fname { color: var(--muted); font-weight: 500; }
 .progress { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+/* Seltenste Erfolge im Profil */
+.rare-ach { display: flex; flex-direction: column; gap: 2px; }
+.rare-ach-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 0 4px; }
+.rare-list { padding: 0; overflow: visible; flex: none; }
+.rare-list li { padding: 7px 4px; }
+.rare-count { font-size: 11px; color: var(--accent); margin-top: 2px; }
+.rare-more { align-self: center; background: none; border: 0; font-size: 12.5px; padding: 4px 8px; }
 
 /* Modal */
 .modal { position: fixed; inset: 40px 0 0; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 16px; z-index: 10; }

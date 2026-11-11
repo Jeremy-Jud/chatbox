@@ -339,7 +339,7 @@
   function helloPayload(code) {
     return {
       type: 'hello', v: PROTO, pv: me.pv || 0, name: me.name, status: me.status || '', avatar: me.avatar || null, frame: me.frame || null, banner: validBanner(me.banner),
-      badges: Object.keys(unlocked).length, ctx: isFriend(code) ? 'friend' : 'group',
+      badges: Object.keys(unlocked).length, ach: Object.keys(unlocked), ctx: isFriend(code) ? 'friend' : 'group',
       keys: relay.publicKeys(),
     };
   }
@@ -373,6 +373,8 @@
         relay.pinKeys(code, data.keys);
         relay.saveNames();
         c.badges = Math.max(0, Math.min(999, Number(data.badges) || 0));
+        // Welche Erfolge (ältere Versionen schicken nur die Anzahl)
+        if (Array.isArray(data.ach)) c.ach = [...new Set(data.ach.map(String))].filter((id) => ACH.some((a) => a.id === id));
         const oldV = c.v || 1;
         c.v = Math.max(1, Math.min(99, Number(data.v) || 1));
         // Wartende große Dateien zustellen, sobald der Freund eine neue Version hat
@@ -696,7 +698,7 @@
     return stats[key] || 0;
   }
   function checkAchievements() {
-    let changed = true;
+    let changed = true, newOnes = false;
     while (changed) {
       changed = false;
       for (const a of ACH) {
@@ -704,10 +706,59 @@
           unlocked[a.id] = Date.now();
           changed = true;
           toast(`${a.icon} Erfolg freigeschaltet: ${a.title}`, true);
+          newOnes = true;
         }
       }
     }
     saveMeta();
+    if (newOnes) {
+      relay.reportAchievements();
+      broadcastProfile(); // Freunde sehen den neuen Erfolg in deinem Profil
+    }
+  }
+
+  // Erfolge eines Kontakts nach Seltenheit sortieren: wenigste Besitzer zuerst
+  function rarestFirst(ids, counts) {
+    const order = new Map(ACH.map((a, i) => [a.id, i]));
+    return ids.map((id) => ACH.find((a) => a.id === id)).filter(Boolean)
+      .map((a) => ({ a, n: Math.max(1, counts[a.id] || 0) })) // der Besitzer selbst zählt immer mit
+      .sort((x, y) => x.n - y.n || y.a.goal - x.a.goal || order.get(x.a.id) - order.get(y.a.id));
+  }
+  const ownersText = (n) => (n === 1 ? '1 Person auf der Welt besitzt dieses Achievement' : `${n.toLocaleString('de-DE')} Personen auf der Welt besitzen dieses Achievement`);
+
+  // Abschnitt „Seltenste Erfolge“ im Profil: zuerst 3, mit „Weitere anzeigen“ alle
+  function rareAchievementsEl(ids) {
+    const wrap = el('div', 'rare-ach');
+    wrap.appendChild(el('div', 'rare-ach-title', 'Seltenste Erfolge'));
+    const ul = el('ul', 'ach-list rare-list');
+    const more = el('button', 'link rare-more', '');
+    more.type = 'button';
+    wrap.append(ul, more);
+    let expanded = false;
+    let rows = rarestFirst(ids, {});
+    let state = 'loading'; // 'loading' | 'ok' | 'error'
+    const draw = () => {
+      ul.replaceChildren();
+      (expanded ? rows : rows.slice(0, 3)).forEach(({ a, n }) => {
+        const li = el('li', 'got');
+        li.appendChild(el('span', 'ach-icon', a.icon));
+        const body = el('div', 'fmeta');
+        body.appendChild(el('div', 'fname', a.title));
+        body.appendChild(el('div', 'flast', a.desc));
+        body.appendChild(el('div', 'rare-count', state === 'ok' ? ownersText(n) : state === 'loading' ? 'Wird geladen…' : 'Seltenheit gerade nicht verfügbar'));
+        li.appendChild(body);
+        ul.appendChild(li);
+      });
+      more.classList.toggle('hidden', rows.length <= 3);
+      more.textContent = expanded ? 'Weniger anzeigen' : `Weitere anzeigen (${rows.length - 3})`;
+    };
+    more.onclick = () => { expanded = !expanded; draw(); };
+    draw();
+    relay.achStats().then((s) => {
+      if (s) { rows = rarestFirst(ids, s.counts); state = 'ok'; } else state = 'error';
+      draw();
+    });
+    return wrap;
   }
 
   // ================= Bilder =================
@@ -1259,6 +1310,7 @@
         head.appendChild(el('div', 'muted', `Code: ${code} · ${isOnline(code) ? 'online' : 'offline'}`));
         if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} Erfolge`));
         box.appendChild(head);
+        if (c.ach && c.ach.length) box.appendChild(rareAchievementsEl(c.ach));
         box.appendChild(clearRow(activeChat));
         box.appendChild(buttons(['Freund entfernen', 'danger', () => {
           if (confirm(`${c.name} entfernen? Der Chatverlauf wird gelöscht. ${c.name} kann dich erst wieder erreichen, wenn du den Code erneut addest.`)) removeFriend(code);
@@ -3408,6 +3460,41 @@
         .then(() => db.put('keys', 'pushIcons', icons)).catch(() => {});
     }
 
+    // ---- Seltenheit der Erfolge ----
+    // Eigene Erfolge (nur die IDs) beim Server melden, damit er zählen kann, wie viele Personen sie haben
+    async function reportAchievements() {
+      if (!ready || !enabled()) return;
+      const ach = Object.keys(unlocked).sort();
+      const key = `${me.code}|${ach.join(',')}`;
+      if (store.load('achReported', '') === key) return;
+      try {
+        const ts = Date.now();
+        await post(`/v1/achreport/${me.code}`, { ach, ts, sig: await sign(`achreport|${me.code}|${ts}|${ach.join(',')}`) });
+        store.save('achReported', key);
+        achStatsCache = null; // gleich neu laden, damit die eigenen Erfolge mitgezählt sind
+      } catch (e) { console.warn('Erfolge melden:', e); }
+    }
+    // Weltweite Zahlen: { counts: { id: Anzahl }, players }. Höchstens alle 5 Minuten neu laden.
+    let achStatsCache = store.load('achStats', null);
+    let achStatsLoading = null;
+    function achStats() {
+      if (achStatsCache && Date.now() - achStatsCache.at < 5 * 60000) return Promise.resolve(achStatsCache);
+      if (!achStatsLoading) {
+        achStatsLoading = fetch(`${url()}/v1/achstats`)
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+          .then((d) => {
+            const counts = {};
+            Object.entries((d && d.counts) || {}).forEach(([id, n]) => { counts[id] = Math.max(0, Number(n) || 0); });
+            achStatsCache = { at: Date.now(), counts, players: Number(d && d.players) || 0 };
+            store.save('achStats', achStatsCache);
+            return achStatsCache;
+          })
+          .catch((e) => { console.warn('Erfolgs-Statistik:', e); return achStatsCache; }) // zur Not die alten Zahlen
+          .finally(() => { achStatsLoading = null; });
+      }
+      return achStatsLoading;
+    }
+
     function renderRelayStatus() {
       const st = $('relayStatus');
       if (!st) return;
@@ -3427,6 +3514,7 @@
       poll();
       setupPush();
       saveNames();
+      reportAchievements();
     }
 
     // Abholen: beim Start, jede Minute, beim Zurückkehren in die App und wenn das Netz wieder da ist
@@ -3436,7 +3524,7 @@
     window.addEventListener('online', () => poll());
 
     return {
-      start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus,
+      start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus, reportAchievements, achStats,
       newIdentity, rotationRequest, rotate, serverHasKey, enabled, url,
       canSend: (code) => ready && enabled() && known[code] !== false,
       publicKeys: () => (ident ? { sign: ident.signPub, enc: ident.encPub } : null),
