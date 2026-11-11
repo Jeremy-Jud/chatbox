@@ -1355,14 +1355,16 @@
 
   let view = 'viewSetup';
   let activeChat = null;
-  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewSettings: 'Einstellungen', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp', viewStatus: 'Status' };
-  const TABS = ['viewStatus', 'viewList', 'viewSettings'];
+  const TITLES = { viewList: 'WhatsUp', viewChat: 'WhatsUp', viewSettings: 'Einstellungen', viewAchievements: 'Erfolge', viewSetup: 'WhatsUp', viewStatus: 'Status', viewReels: 'UpReels' };
+  const TABS = ['viewStatus', 'viewReels', 'viewList', 'viewSettings'];
   let lastTab = 'viewList';
 
   function show(v) {
     view = v;
     if (TABS.includes(v)) lastTab = v;
-    ['viewSetup', 'viewList', 'viewChat', 'viewSettings', 'viewAchievements', 'viewStatus'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
+    ['viewSetup', 'viewList', 'viewChat', 'viewSettings', 'viewAchievements', 'viewStatus', 'viewReels'].forEach((x) => $(x).classList.toggle('hidden', x !== v));
+    if (v !== 'viewReels') { reels.pauseAll(); reels.closeSheet(); }
+    document.documentElement.classList.toggle('in-reels', v === 'viewReels');
     $('tabbar').classList.toggle('hidden', !TABS.includes(v));
     document.querySelectorAll('#tabbar .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === v));
     $('backBtn').classList.toggle('hidden', TABS.includes(v) || v === 'viewSetup');
@@ -1406,6 +1408,7 @@
       const v = t.dataset.tab;
       if (v === 'viewSettings') { if (view !== 'viewSettings') openSettings(); return; }
       show(v); render();
+      if (v === 'viewReels') reels.openFeed();
     };
   });
 
@@ -1665,6 +1668,7 @@
         if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} Erfolge`));
         box.appendChild(head);
         if (c.ach && c.ach.length) box.appendChild(rareAchievementsEl(c.ach));
+        box.appendChild(reels.profileSection(code, c.name));
         box.appendChild(clearRow(activeChat));
         box.appendChild(buttons(['Freund entfernen', 'danger', () => {
           if (confirm(`${c.name} entfernen? Der Chatverlauf wird gelöscht. ${c.name} kann dich erst wieder erreichen, wenn du den Code erneut addest.`)) removeFriend(code);
@@ -2079,6 +2083,8 @@
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if ($('msgMenuBack')) closeMsgMenu();
+    else if (music.isOpen()) music.closePicker();
+    else if (reels.sheetOpen()) reels.closeSheet();
     else if (video.open()) video.close();
     else if (video.playerOpen()) video.closePlayer();
     else if (!$('stkEditor').classList.contains('hidden')) $('stkCancel').click();
@@ -2656,6 +2662,170 @@
     return { el: el_, stop, stopPlayback, recording: () => !!rec, syncComposer };
   })();
 
+  // ================= Musik für UpReels (feste Auswahl, CC BY 4.0, keine eigenen Dateien) =================
+  // Die Tracks liegen bei der Web-Version (GitHub Pages) unter music/. Die Windows-App holt sie von dort.
+  const music = (() => {
+    const BASE = document.documentElement.classList.contains('is-web') ? 'music/' : 'https://jeremy-jud.github.io/whatsup/music/';
+    let cat = null, catLoading = null, actx = null;
+    const buffers = new Map(); // id -> Promise<AudioBuffer>
+    let preview = null;        // { node, id }
+    const fmt = (s) => { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+    function catalog() {
+      if (cat) return Promise.resolve(cat);
+      if (!catLoading) {
+        catLoading = fetch(BASE + 'tracks.json').then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then((d) => { cat = d; return d; })
+          .catch((e) => { catLoading = null; throw e; });
+      }
+      return catLoading;
+    }
+    const track = (id) => (cat && cat.tracks.find((t) => t.id === id)) || null;
+    const credit = (t) => `„${t.title}“ – ${t.artist} (incompetech.com) · CC BY 4.0`;
+    function ctx() {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume().catch(() => {});
+      return actx;
+    }
+    function buffer(id) {
+      if (!buffers.has(id)) {
+        const p = fetch(BASE + id + '.mp3').then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+          .then((ab) => new Promise((res, rej) => ctx().decodeAudioData(ab, res, rej)));
+        p.catch(() => buffers.delete(id));
+        buffers.set(id, p);
+        // höchstens 4 Tracks im Speicher
+        while (buffers.size > 4) buffers.delete(buffers.keys().next().value);
+      }
+      return buffers.get(id);
+    }
+    function stopPreview() {
+      if (preview) { try { preview.node.stop(); } catch {} preview = null; }
+      document.querySelectorAll('.mus-play.on').forEach((b) => { b.classList.remove('on'); b.textContent = '▶'; });
+    }
+    async function playPreview(id, start, len, btn) {
+      if (preview && preview.id === id && btn && btn.classList.contains('on')) { stopPreview(); return; }
+      stopPreview();
+      if (btn) { btn.classList.add('on'); btn.textContent = '…'; }
+      try {
+        const buf = await buffer(id);
+        if (btn && !btn.classList.contains('on')) return; // inzwischen gestoppt
+        const node = ctx().createBufferSource();
+        node.buffer = buf;
+        const g = ctx().createGain(); g.gain.value = 0.9;
+        node.connect(g); g.connect(ctx().destination);
+        node.start(0, Math.min(start, Math.max(0, buf.duration - 1)), len || undefined);
+        node.onended = () => { if (preview && preview.node === node) stopPreview(); };
+        preview = { node, id };
+        if (btn) btn.textContent = '■';
+      } catch { toast('⚠️ Musik konnte nicht geladen werden'); stopPreview(); }
+    }
+
+    // Auswahl: Kategorien -> Track -> Ausschnitt. onPick({ id, start }) oder onPick(null) = ohne Musik
+    async function pick({ current, len, onPick }) {
+      closePicker();
+      ctx(); // im Klick freischalten (iPhone)
+      const back = el('div', 'reel-sheet-back mus-back');
+      back.id = 'musicSheet';
+      const box = el('div', 'reel-sheet mus-sheet');
+      back.appendChild(box);
+      back.onclick = (e) => { if (e.target === back) closePicker(); };
+      document.body.appendChild(back);
+      const head = (title, onBack) => {
+        const h = el('div', 'reel-sheet-head');
+        if (onBack) { const b = el('button', 'ic'); b.type = 'button'; b.innerHTML = '<svg><use href="#i-back"/></svg>'; b.onclick = onBack; h.appendChild(b); }
+        h.appendChild(el('h3', 'mus-title', title));
+        const x = el('button', 'ic'); x.type = 'button'; x.innerHTML = '<svg><use href="#i-x"/></svg>'; x.title = 'Schließen'; x.onclick = closePicker;
+        h.appendChild(x);
+        return h;
+      };
+      const foot = () => el('div', 'mus-credit', 'Musik: Kevin MacLeod (incompetech.com) · Lizenz CC BY 4.0');
+      box.append(head('🎵 Musik'), el('div', 'muted center', 'Wird geladen…'));
+      let data;
+      try { data = await catalog(); } catch { box.replaceChildren(head('🎵 Musik'), el('div', 'muted center', '⚠️ Musik konnte nicht geladen werden. Bist du online?')); return; }
+      let activeCat = current && track(current.id) ? track(current.id).cat : 'all';
+
+      const drawList = () => {
+        stopPreview();
+        box.replaceChildren(head('🎵 Musik'));
+        const chips = el('div', 'mus-cats');
+        [{ id: 'all', name: 'Alle' }, ...data.categories].forEach((c) => {
+          const b = el('button', 'mus-cat' + (c.id === activeCat ? ' on' : ''), c.name);
+          b.type = 'button';
+          b.onclick = () => { activeCat = c.id; drawList(); };
+          chips.appendChild(b);
+        });
+        box.appendChild(chips);
+        const ul = el('ul', 'mus-list');
+        data.tracks.filter((t) => activeCat === 'all' || t.cat === activeCat).forEach((t) => {
+          const li = el('li', 'mus-item' + (current && current.id === t.id ? ' cur' : ''));
+          const play = el('button', 'mus-play', '▶');
+          play.type = 'button'; play.title = 'Anhören';
+          play.onclick = (e) => { e.stopPropagation(); playPreview(t.id, Math.min(30, t.dur / 4), 20, play); };
+          const meta = el('div', 'mus-meta');
+          meta.append(el('div', 'mus-name', t.title), el('div', 'muted', `${t.artist} · ${fmt(t.dur)}`));
+          const use = el('button', 'mus-use', current && current.id === t.id ? 'Gewählt' : 'Wählen');
+          use.type = 'button';
+          use.onclick = (e) => { e.stopPropagation(); drawCut(t, current && current.id === t.id ? current.start : 0); };
+          li.append(play, meta, use);
+          li.onclick = () => drawCut(t, current && current.id === t.id ? current.start : 0);
+          ul.appendChild(li);
+        });
+        box.appendChild(ul);
+        if (current) {
+          const none = el('button', 'menu-item danger', '🚫 Ohne Musik');
+          none.type = 'button';
+          none.onclick = () => { closePicker(); onPick(null); };
+          box.appendChild(none);
+        }
+        box.appendChild(foot());
+      };
+
+      // Ausschnitt wählen
+      const drawCut = (t, start) => {
+        stopPreview();
+        const L = Math.min(len || 15, t.dur);
+        const maxStart = Math.max(0, Math.floor((t.dur - L) * 2) / 2);
+        start = Math.min(start || 0, maxStart);
+        box.replaceChildren(head(t.title, drawList));
+        const wrap = el('div', 'mus-cut');
+        wrap.appendChild(el('div', 'muted', `${t.artist} · ${fmt(t.dur)}`));
+        const label = el('div', 'mus-cut-label');
+        const range = el('input');
+        range.type = 'range'; range.min = 0; range.max = maxStart; range.step = 0.5; range.value = start;
+        range.className = 'mus-range';
+        const bar = el('div', 'mus-bar');
+        const win = el('div', 'mus-win');
+        bar.appendChild(win);
+        const upd = () => {
+          const s = Number(range.value);
+          label.textContent = `Ausschnitt: ${fmt(s)} – ${fmt(s + L)}`;
+          win.style.left = (s / t.dur * 100) + '%';
+          win.style.width = (L / t.dur * 100) + '%';
+        };
+        range.oninput = () => { upd(); stopPreview(); };
+        range.onchange = () => playPreview(t.id, Number(range.value), L, listen);
+        upd();
+        const listen = el('button', 'mus-play big', '▶');
+        listen.type = 'button'; listen.title = 'Ausschnitt anhören';
+        listen.onclick = () => playPreview(t.id, Number(range.value), L, listen);
+        const row = el('div', 'mus-cut-row');
+        row.append(listen, el('span', 'muted', maxStart > 0 ? 'Schieb den Regler, um den Ausschnitt zu wählen' : 'Der Track ist kürzer als dein Video'));
+        wrap.append(label, bar, range, row);
+        box.appendChild(wrap);
+        const ok = el('button', 'primary mus-ok', '✓ Diese Musik nehmen');
+        ok.type = 'button';
+        ok.onclick = () => { closePicker(); onPick({ id: t.id, start: Number(range.value) }); };
+        box.append(ok, el('div', 'mus-credit', credit(t) + ' · für WhatsUp gekürzt'));
+        buffer(t.id).catch(() => {}); // schon mal laden
+      };
+
+      if (current && track(current.id)) drawCut(track(current.id), current.start); else drawList();
+    }
+    function closePicker() { stopPreview(); const s = $('musicSheet'); if (s) s.remove(); }
+
+    return { catalog, track, credit, ctx, buffer, pick, closePicker, isOpen: () => !!$('musicSheet'), fmt };
+  })();
+
   // ================= Videos aufnehmen und abspielen =================
   // Aufgenommen wird nicht direkt die Kamera, sondern eine Zeichenfläche, auf die das Kamerabild gemalt wird.
   // So kann man WÄHREND der Aufnahme die Kamera drehen: Es wechselt nur die Quelle, die Aufnahme läuft weiter.
@@ -2670,6 +2840,132 @@
       .find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     const fmt = (s) => { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
     const videoInputs = async () => { try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput'); } catch { return []; } };
+
+    // ---------- Musik für UpReels: auswählen, beim Aufnehmen mithören, Regler, einmischen ----------
+    // Die Vorschau läuft über Web Audio: Video-Ton -> voiceGain, Musik -> musicGain.
+    let mix = null; // { ctx, outSrc, voiceGain, musicGain, node }
+    function ensureMix() {
+      if (mix) return mix;
+      const ctx = music.ctx();
+      const voiceGain = ctx.createGain(), musicGain = ctx.createGain();
+      const outSrc = ctx.createMediaElementSource(out); // geht pro Element nur einmal – ab jetzt läuft der Vorschau-Ton immer hierüber
+      outSrc.connect(voiceGain);
+      voiceGain.connect(ctx.destination);
+      musicGain.connect(ctx.destination);
+      mix = { ctx, outSrc, voiceGain, musicGain, node: null };
+      return mix;
+    }
+    function applyLevels() {
+      if (!mix || !st) return;
+      mix.voiceGain.gain.value = st.target === 'reel' ? st.levels.voice : 1;
+      mix.musicGain.gain.value = st.levels.music;
+    }
+    function stopMusic() { if (mix && mix.node) { try { mix.node.stop(); } catch {} mix.node = null; } }
+    // Musik ab Sekunde „at“ des Videos starten (beim Aufnehmen, in der Vorschau und beim Einmischen)
+    function startMusic(at) {
+      stopMusic();
+      if (!st || !st.music || !st.musicBuf) return;
+      ensureMix();
+      const off = st.music.start + Math.max(0, at);
+      if (off >= st.musicBuf.duration) return;
+      const n = mix.ctx.createBufferSource();
+      n.buffer = st.musicBuf;
+      n.connect(mix.musicGain);
+      n.start(0, off);
+      mix.node = n;
+    }
+    async function setMusic(m) {
+      st.music = m;
+      st.musicBuf = null;
+      renderMusicChip();
+      if (!m) { stopMusic(); return; }
+      try {
+        const buf = await music.buffer(m.id);
+        if (!st || st.music !== m) return;
+        st.musicBuf = buf;
+        ensureMix(); applyLevels();
+        if (ov.dataset.mode === 'done' && !out.paused) startMusic(out.currentTime);
+      } catch { toast('⚠️ Musik konnte nicht geladen werden'); }
+    }
+    function renderMusicChip() {
+      const b = $('vidMusic');
+      const t = st && st.music && music.track(st.music.id);
+      b.textContent = t ? `🎵 ${t.title} · ab ${fmt(st.music.start)}` : '🎵 Musik hinzufügen';
+      b.classList.toggle('on', !!t);
+      $('vidMixMusic').disabled = !t;
+      $('vidMixMusicRow').classList.toggle('off', !t);
+    }
+    $('vidMusic').onclick = async () => {
+      if (!st || st.rec) return;
+      await music.catalog().catch(() => {});
+      const len = st.result ? st.result.dur : 15;
+      if (ov.dataset.mode === 'done') { out.pause(); }
+      music.pick({ current: st.music, len, onPick: (m) => { setMusic(m); if (ov.dataset.mode === 'done') { out.currentTime = 0; out.play().catch(() => {}); } } });
+    };
+    $('vidMixMusic').oninput = (e) => { if (st) { st.levels.music = Number(e.target.value) / 100; applyLevels(); } };
+    $('vidMixVoice').oninput = (e) => { if (st) { st.levels.voice = Number(e.target.value) / 100; applyLevels(); } };
+    // Vorschau: Musik im Takt mit dem Video halten
+    let lastT = 0;
+    out.addEventListener('play', () => { if (st && st.target === 'reel' && !st.mixing) startMusic(out.currentTime); });
+    out.addEventListener('pause', () => { if (st && !st.mixing) stopMusic(); });
+    out.addEventListener('seeked', () => { if (st && st.target === 'reel' && !st.mixing && !out.paused) startMusic(out.currentTime); });
+    out.addEventListener('timeupdate', () => {
+      if (st && st.target === 'reel' && !st.mixing && !out.paused && out.currentTime < lastT - 0.3) startMusic(out.currentTime); // Schleife neu
+      lastT = out.currentTime;
+    });
+
+    // Fertig gemischtes Video erzeugen: Vorschau einmal in Echtzeit abspielen und dabei Bild + Mischung aufnehmen
+    async function renderMix(onProgress) {
+      const s = st, r = s.result;
+      ensureMix(); applyLevels();
+      await mix.ctx.resume().catch(() => {});
+      const dest = mix.ctx.createMediaStreamDestination();
+      mix.voiceGain.disconnect(); mix.musicGain.disconnect();
+      mix.voiceGain.connect(dest); mix.musicGain.connect(dest);
+      s.mixing = true;
+      let raf = 0;
+      try {
+        out.pause(); out.loop = false; out.muted = false;
+        if (out.currentTime !== 0) { const sk = new Promise((res) => out.addEventListener('seeked', res, { once: true })); out.currentTime = 0; await Promise.race([sk, new Promise((res) => setTimeout(res, 1500))]); }
+        cv.width = r.w; cv.height = r.h;
+        const g = cv.getContext('2d');
+        const draw = () => {
+          if (out.videoWidth) {
+            const s = Math.max(cv.width / out.videoWidth, cv.height / out.videoHeight);
+            const dw = out.videoWidth * s, dh = out.videoHeight * s;
+            g.drawImage(out, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+          }
+          raf = requestAnimationFrame(draw);
+        };
+        draw();
+        const stream = new MediaStream([...cv.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+        const type = pickType();
+        let rec;
+        try { rec = new MediaRecorder(stream, { videoBitsPerSecond: 1200000, audioBitsPerSecond: 96000, ...(type ? { mimeType: type } : {}) }); }
+        catch { rec = new MediaRecorder(stream); }
+        const chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        const stopped = new Promise((res) => { rec.onstop = res; });
+        const tick = () => onProgress(Math.min(1, out.currentTime / (r.dur || out.duration || 1)));
+        out.addEventListener('timeupdate', tick);
+        rec.start(500);
+        await out.play();
+        startMusic(0);
+        await Promise.race([new Promise((res) => out.addEventListener('ended', res, { once: true })), new Promise((res) => setTimeout(res, (r.dur + 4) * 1000))]);
+        out.removeEventListener('timeupdate', tick);
+        stopMusic();
+        rec.stop();
+        await stopped;
+        const t = ((rec.mimeType || type || 'video/webm').split(';')[0]);
+        return { blob: new Blob(chunks, { type: t }), type: t };
+      } finally {
+        cancelAnimationFrame(raf);
+        s.mixing = false;
+        out.loop = true;
+        mix.voiceGain.disconnect(); mix.musicGain.disconnect();
+        mix.voiceGain.connect(mix.ctx.destination); mix.musicGain.connect(mix.ctx.destination);
+      }
+    }
 
     async function getCam(facing, deviceId) {
       const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
@@ -2709,13 +3005,29 @@
       mirror();
     }
 
-    async function open() {
-      if (st || !activeChat) return;
+    // target: 'chat' (Video in den aktiven Chat) oder 'reel' (als UpReel posten, mit Beschreibung)
+    let lastTarget = 'chat';
+    let lastMusic = null;
+    // opts.music = { id, start }: Musik vorwählen („Sound benutzen“)
+    async function open(target = 'chat', opts = {}) {
+      if (st || (target === 'chat' && !activeChat)) return;
       if (!navigator.mediaDevices || !window.MediaRecorder) { toast('⚠️ Videos aufnehmen wird hier nicht unterstützt.'); return; }
       if (calls.active()) { toast('Während eines Anrufs nicht möglich'); return; }
       if (voice.recording()) return;
       hideEmoji();
-      st = { chatId: activeChat, facing: 'user', chunks: [] };
+      if (mix) music.ctx(); // Ton der Vorschau läuft über Web Audio: im Klick wieder freischalten
+      lastTarget = target;
+      st = { chatId: target === 'chat' ? activeChat : null, target, facing: 'user', chunks: [], music: null, levels: { music: 0.6, voice: 1 } };
+      ov.dataset.target = target;
+      $('vidCaption').value = '';
+      $('vidMixMusic').value = 60; $('vidMixVoice').value = 100;
+      if (target === 'reel') {
+        lastMusic = opts.music || null;
+        await music.catalog().catch(() => {});
+        if (!st) return;
+        if (opts.music && music.track(opts.music.id)) setMusic({ id: opts.music.id, start: Number(opts.music.start) || 0 });
+        else renderMusicChip();
+      }
       ov.classList.remove('hidden');
       ov.classList.add('loading');
       setMode('ready');
@@ -2778,6 +3090,8 @@
       st.rec.onstop = finish;
       st.rec.start(500);
       st.startT = Date.now();
+      // Musik zum Mithören (Kopfhörer empfohlen) – eingemischt wird sie später sauber vom Track
+      if (st.target === 'reel' && st.musicBuf) { ensureMix(); mix.musicGain.gain.value = 0.7; startMusic(0); }
       // Vorschaubild für die Chat-Blase kurz nach dem Start
       setTimeout(() => { if (st && !st.poster) st.poster = posterFrom(cv); }, 400);
       $('vidTime').textContent = '0:00';
@@ -2807,6 +3121,7 @@
     async function finish() {
       if (!st) return;
       clearInterval(st.timer);
+      stopMusic();
       const dur = (Date.now() - st.startT) / 1000;
       const type = ((st.rec && st.rec.mimeType) || (st.chunks[0] && st.chunks[0].type) || 'video/webm').split(';')[0];
       st.rec = null;
@@ -2819,6 +3134,7 @@
       if (st.audio) st.audio.getTracks().forEach((t) => t.stop());
       st.cam = st.audio = null;
       out.src = URL.createObjectURL(blob);
+      if (mix) applyLevels();
       out.play().catch(() => {});
       setMode('done');
     }
@@ -2827,6 +3143,26 @@
       if (!st || !st.result) return;
       const { blob, type, dur, w, h, poster } = st.result;
       const chatId = st.chatId;
+      if (st.target === 'reel') {
+        if (!reels.canPost()) return;
+        $('vidSend').disabled = true; $('vidRetake').disabled = true; $('vidMusic').disabled = true;
+        const s = st;
+        let file = { blob, type };
+        // Musik oder geänderte Lautstärke: Mischung in ein neues Video schreiben
+        if (s.musicBuf || s.levels.voice !== 1) {
+          const bar = $('vidUpload');
+          bar.classList.remove('hidden');
+          bar.querySelector('span').textContent = '🎵 Musik wird eingemischt…';
+          try { file = await renderMix((p) => { bar.querySelector('div').style.width = Math.round(p * 100) + '%'; }); }
+          catch (e) { console.error(e); toast('⚠️ Musik konnte nicht eingemischt werden'); file = null; }
+          bar.classList.add('hidden');
+        }
+        let ok = false;
+        if (file && st === s) ok = await reels.upload({ blob: file.blob, type: file.type, dur, w, h, poster, music: s.musicBuf ? s.music : null }, $('vidCaption').value);
+        $('vidSend').disabled = false; $('vidRetake').disabled = false; $('vidMusic').disabled = false;
+        if (ok) close();
+        return;
+      }
       $('vidSend').disabled = true;
       try {
         const data = await readAsDataURL(new Blob([blob], { type }));
@@ -2838,12 +3174,15 @@
 
     // Nochmal: Ergebnis verwerfen und Kamera wieder an
     async function retake() {
-      if (!st) return;
+      if (!st || st.mixing) return;
+      const keep = st.music; // gewählte Musik bleibt
       close();
-      await open();
+      await open(lastTarget, { music: keep });
     }
 
     function close() {
+      stopMusic();
+      music.closePicker();
       if (st) {
         const s = st; st = null;
         clearInterval(s.timer);
@@ -2854,7 +3193,7 @@
       }
       src.srcObject = null;
       if (out.src) { URL.revokeObjectURL(out.src); out.removeAttribute('src'); out.load(); }
-      $('vidSend').disabled = false;
+      $('vidSend').disabled = false; $('vidRetake').disabled = false; $('vidMusic').disabled = false;
       ov.classList.add('hidden');
     }
 
@@ -2864,7 +3203,7 @@
       if (mode !== 'rec') $('vidTime').textContent = mode === 'done' && st && st.result ? fmt(st.result.dur) : 'max. ' + fmt(MAX_S);
     }
 
-    $('videoBtn').onclick = open;
+    $('videoBtn').onclick = () => open('chat');
     $('vidClose').onclick = close;
     $('vidFlip').onclick = flip;
     $('vidShutter').onclick = () => { if (st && st.rec) stop(); else start(); };
@@ -2922,9 +3261,548 @@
     $('vidViewer').onclick = (e) => { if (e.target.id === 'vidViewer') closePlayer(); };
 
     return {
-      el: el_, close, closePlayer,
+      el: el_, close, closePlayer, record: open,
       open: () => !!st, playerOpen: () => !$('vidViewer').classList.contains('hidden'),
     };
+  })();
+
+  // ================= UpReels: öffentliche Kurzvideos für alle WhatsUp-Nutzer =================
+  // Liegen auf dem Briefkasten-Server. Jede Aktion ist mit dem eigenen Schlüssel signiert.
+  const reels = (() => {
+    const feedEl = $('reelFeed');
+    let list = [];            // angezeigte Reels
+    let mode = 'feed';        // 'feed' | 'list' (Profil/Meine)
+    let feedCache = null;     // Feed merken, während eine Profil-Liste offen ist
+    let loading = false, done = false, loadedAt = 0;
+    let admin = false;
+    let muted = false;
+    const viewed = new Set();
+    const api = (p) => relay.url() + '/v1/reels' + p;
+    const ago = (ts) => {
+      const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+      if (s < 60) return 'gerade eben';
+      if (s < 3600) return `vor ${Math.floor(s / 60)} Min.`;
+      if (s < 86400) return `vor ${Math.floor(s / 3600)} Std.`;
+      if (s < 86400 * 7) return `vor ${Math.floor(s / 86400)} T.`;
+      return new Date(ts).toLocaleDateString('de-DE');
+    };
+    const count = (n) => (n >= 10000 ? Math.round(n / 1000) + 'K' : n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + 'K' : String(n || 0));
+
+    function needServer() {
+      if (relay.ready()) return true;
+      toast(settings.relay === false ? '⚠️ Für UpReels muss in den Einstellungen der Briefkasten-Server an sein.' : '⚠️ Server gerade nicht erreichbar. Versuch es gleich nochmal.');
+      return false;
+    }
+    async function signedPost(path, action, extra, body) {
+      const ts = Date.now();
+      const sig = await relay.signText(`${action}|${me.code}|${ts}${extra}`);
+      const res = await fetch(api(path), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, code: me.code, ts, sig }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      return data;
+    }
+
+    // ---------- Laden ----------
+    async function loadFeed(reset) {
+      if (loading || (!reset && done)) return;
+      loading = true;
+      await music.catalog().catch(() => {});
+      try {
+        const before = !reset && list.length ? list[list.length - 1].ts : '';
+        const res = await fetch(api(`/feed?limit=8&me=${me.code}${before ? '&before=' + before : ''}`));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
+        admin = !!d.admin;
+        const items = (d.reels || []).filter((r) => !list.some((x) => x.id === r.id) || reset);
+        if (reset) { list = items; feedEl.replaceChildren(); done = false; }
+        else list.push(...items);
+        if (items.length < 8) done = true;
+        loadedAt = Date.now();
+        items.forEach((r) => feedEl.appendChild(reelEl(r)));
+        renderEmpty();
+      } catch (e) {
+        console.warn('UpReels:', e);
+        if (!list.length) renderEmpty('⚠️ UpReels konnten nicht geladen werden. Bist du online?');
+      } finally { loading = false; }
+    }
+    function renderEmpty(msg) {
+      $('reelEmpty').classList.toggle('hidden', !!list.length);
+      $('reelEmpty').textContent = msg || (mode === 'feed' ? 'Noch keine UpReels. Sei der Erste und poste eins! 🎬' : 'Hier gibt es noch keine UpReels.');
+    }
+
+    function openFeed() {
+      if (mode !== 'feed') {
+        mode = 'feed';
+        $('reelBack').classList.add('hidden');
+        $('reelTitle').textContent = 'UpReels';
+        if (feedCache) { list = feedCache.list; done = feedCache.done; feedEl.replaceChildren(...list.map(reelEl)); feedCache = null; renderEmpty(); }
+      }
+      if (!list.length || Date.now() - loadedAt > 60000) { feedEl.scrollTop = 0; loadFeed(true); }
+      else setTimeout(playVisible, 50);
+    }
+    // Reels eines Nutzers (Profil oder „Meine“)
+    async function openUser(code, name) {
+      if (mode === 'feed') feedCache = { list, done };
+      mode = 'list';
+      list = []; done = true;
+      feedEl.replaceChildren();
+      $('reelTitle').textContent = code === me.code ? 'Meine UpReels' : `UpReels von ${name || nameOf(code)}`;
+      $('reelBack').classList.remove('hidden');
+      show('viewReels');
+      try {
+        const d = await (await fetch(api(`/user/${code}?me=${me.code}`))).json();
+        list = d.reels || [];
+        list.forEach((r) => feedEl.appendChild(reelEl(r)));
+      } catch { toast('⚠️ Konnte nicht geladen werden'); }
+      renderEmpty();
+      feedEl.scrollTop = 0;
+      setTimeout(playVisible, 50);
+    }
+
+    // ---------- Ein Reel ----------
+    function reelEl(r) {
+      const item = el('div', 'reel');
+      item.dataset.id = r.id;
+      const v = document.createElement('video');
+      v.className = 'reel-video';
+      v.playsInline = true; v.loop = true; v.preload = 'none';
+      v.setAttribute('playsinline', '');
+      if (r.poster) v.poster = r.poster;
+      v.dataset.src = api('/video/' + r.id);
+      item.appendChild(v);
+
+      const heart = el('div', 'reel-heart', '❤️');
+      item.appendChild(heart);
+      const pauseIc = el('div', 'reel-paused', '▶');
+      item.appendChild(pauseIc);
+
+      // Tippen = Pause/Weiter, doppelt tippen = Like
+      let lastTap = 0, tapTimer = null;
+      v.addEventListener('click', () => {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          clearTimeout(tapTimer); lastTap = 0;
+          if (!r.liked) toggleLike(r, item);
+          heart.classList.remove('pop'); void heart.offsetWidth; heart.classList.add('pop');
+          return;
+        }
+        lastTap = now;
+        tapTimer = setTimeout(() => {
+          if (v.paused) { v.play().catch(() => {}); item.classList.remove('paused'); }
+          else { v.pause(); item.classList.add('paused'); }
+        }, 300);
+      });
+
+      // Unten links: wer, wann, Beschreibung
+      const info = el('div', 'reel-info');
+      const who = el('button', 'reel-who');
+      who.type = 'button';
+      const c = contacts[r.author];
+      who.append(avatarEl(r.name, c && c.avatar, r.author, 'sm', null, c && c.frame), el('span', 'reel-name', r.author === me.code ? 'Du' : r.name), el('span', 'reel-ago', '· ' + ago(r.ts)));
+      who.onclick = () => openUser(r.author, r.name);
+      info.appendChild(who);
+      if (r.caption) info.appendChild(el('div', 'reel-caption', r.caption));
+      if (r.music) {
+        const t = music.track(r.music.id);
+        const snd = el('button', 'reel-sound');
+        snd.type = 'button';
+        snd.append(el('span', 'reel-sound-ic', '🎵'), el('span', 'reel-sound-t', t ? t.title + ' · ' + t.artist : 'Musik'));
+        snd.onclick = () => openSound(r.music);
+        info.appendChild(snd);
+        if (!t) music.catalog().then(() => { const tt = music.track(r.music.id); if (tt) snd.lastChild.textContent = tt.title + ' · ' + tt.artist; }).catch(() => {});
+      } else {
+        const snd = el('div', 'reel-sound plain');
+        snd.append(el('span', 'reel-sound-ic', '🎤'), el('span', 'reel-sound-t', 'Originalton'));
+        info.appendChild(snd);
+      }
+      item.appendChild(info);
+
+      // Rechts: Like, Kommentare, Aufrufe, Mehr
+      const side = el('div', 'reel-side');
+      const btn = (cls, icon, n, title) => {
+        const b = el('button', 'reel-btn ' + cls);
+        b.type = 'button'; b.title = title;
+        b.append(el('span', 'reel-btn-ic', icon), el('span', 'reel-btn-n', n));
+        side.appendChild(b);
+        return b;
+      };
+      const likeB = btn('like' + (r.liked ? ' on' : ''), r.liked ? '❤️' : '🤍', count(r.likes), 'Gefällt mir');
+      likeB.onclick = () => toggleLike(r, item);
+      btn('comments', '💬', count(r.comments), 'Kommentare').onclick = () => openComments(r, item);
+      const viewsB = btn('views', '👀', count(r.views), r.author === me.code ? 'Wer hat es gesehen?' : 'Aufrufe');
+      viewsB.onclick = () => { if (r.author === me.code || admin) openViewers(r); else toast(`👀 ${r.views} ${r.views === 1 ? 'Aufruf' : 'Aufrufe'}`); };
+      btn('more', '⋯', '', 'Mehr').onclick = () => openMore(r, item);
+      item.appendChild(side);
+
+      const mute = el('button', 'reel-mute', muted ? '🔇' : '🔊');
+      mute.type = 'button'; mute.title = 'Ton an/aus';
+      mute.onclick = () => { muted = !muted; document.querySelectorAll('.reel-video').forEach((x) => { x.muted = muted; }); document.querySelectorAll('.reel-mute').forEach((x) => { x.textContent = muted ? '🔇' : '🔊'; }); };
+      item.appendChild(mute);
+      item._reel = r;
+      return item;
+    }
+    function updateItem(r, item) {
+      if (!item) return;
+      const like = item.querySelector('.reel-btn.like');
+      like.classList.toggle('on', !!r.liked);
+      like.querySelector('.reel-btn-ic').textContent = r.liked ? '❤️' : '🤍';
+      like.querySelector('.reel-btn-n').textContent = count(r.likes);
+      item.querySelector('.reel-btn.comments .reel-btn-n').textContent = count(r.comments);
+      item.querySelector('.reel-btn.views .reel-btn-n').textContent = count(r.views);
+    }
+
+    // ---------- Abspielen: nur das sichtbare Reel ----------
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { e.target.dataset.vis = e.isIntersecting && e.intersectionRatio >= 0.6 ? '1' : ''; });
+      playVisible();
+    }, { root: feedEl, threshold: [0, 0.6, 1] });
+    new MutationObserver(() => feedEl.querySelectorAll('.reel:not([data-obs])').forEach((x) => { x.dataset.obs = '1'; io.observe(x); }))
+      .observe(feedEl, { childList: true });
+
+    let viewTimer = null;
+    function playVisible() {
+      if (view !== 'viewReels' || document.hidden) { pauseAll(); return; }
+      const items = [...feedEl.querySelectorAll('.reel')];
+      const cur = items.find((x) => x.dataset.vis === '1');
+      items.forEach((x) => {
+        const v = x.querySelector('video');
+        if (x !== cur) { if (!v.paused) v.pause(); return; }
+        if (!v.src) v.src = v.dataset.src;
+        v.muted = muted;
+        if (!x.classList.contains('paused')) {
+          v.play().catch(() => {
+            // Ton ohne Antippen nicht erlaubt (iPhone): stumm starten
+            muted = true; v.muted = true;
+            document.querySelectorAll('.reel-mute').forEach((m) => { m.textContent = '🔇'; });
+            v.play().catch(() => {});
+          });
+        }
+      });
+      // Nächstes Video schon vorladen
+      const i = items.indexOf(cur);
+      const next = items[i + 1] && items[i + 1].querySelector('video');
+      if (next && !next.src) { next.preload = 'auto'; next.src = next.dataset.src; }
+      // Aufruf zählen, wenn man es 1,5 s gesehen hat
+      clearTimeout(viewTimer);
+      if (cur) viewTimer = setTimeout(() => countView(cur._reel, cur), 1500);
+      // Kurz vor dem Ende nachladen
+      if (mode === 'feed' && i >= items.length - 3) loadFeed(false);
+    }
+    function pauseAll() { feedEl.querySelectorAll('video').forEach((v) => { if (!v.paused) v.pause(); }); }
+    document.addEventListener('visibilitychange', () => { if (view === 'viewReels') playVisible(); });
+
+    async function countView(r, item) {
+      if (!r || r.author === me.code || viewed.has(r.id) || !relay.ready()) return;
+      viewed.add(r.id);
+      try { await signedPost('/view', 'reelview', `|${r.id}`, { id: r.id, name: me.name }); r.views++; updateItem(r, item); } catch {}
+    }
+
+    async function toggleLike(r, item) {
+      if (!needServer()) return;
+      const on = !r.liked;
+      r.liked = on; r.likes = Math.max(0, r.likes + (on ? 1 : -1)); updateItem(r, item);
+      try { const d = await signedPost('/like', 'reellike', `|${r.id}|${on ? 1 : 0}`, { id: r.id, on }); r.likes = d.likes; r.liked = d.liked; }
+      catch { r.liked = !on; r.likes = Math.max(0, r.likes + (on ? -1 : 1)); toast('⚠️ Hat nicht geklappt'); }
+      updateItem(r, item);
+    }
+
+    // ---------- Unteres Blatt (Kommentare, Aufrufe, Mehr) ----------
+    function sheet(title, build) {
+      closeSheet();
+      const back = el('div', 'reel-sheet-back');
+      back.id = 'reelSheet';
+      const box = el('div', 'reel-sheet');
+      const head = el('div', 'reel-sheet-head');
+      const x = el('button', 'ic', '');
+      x.type = 'button'; x.innerHTML = '<svg><use href="#i-x"/></svg>'; x.title = 'Schließen';
+      x.onclick = closeSheet;
+      head.append(el('h3', '', title), x);
+      box.appendChild(head);
+      back.appendChild(box);
+      back.onclick = (e) => { if (e.target === back) closeSheet(); };
+      document.body.appendChild(back);
+      build(box);
+      return box;
+    }
+    function closeSheet() { const s = $('reelSheet'); if (s) s.remove(); }
+
+    async function openComments(r, item) {
+      sheet('Kommentare', async (box) => {
+        const ul = el('ul', 'reel-comments');
+        ul.appendChild(el('li', 'muted center', 'Wird geladen…'));
+        const form = el('form', 'reel-comment-form');
+        const input = el('input');
+        input.placeholder = 'Kommentar schreiben…'; input.maxLength = 300;
+        const send = el('button', 'send');
+        send.type = 'submit'; send.innerHTML = '<svg><use href="#i-send"/></svg>';
+        form.append(input, send);
+        box.append(ul, form);
+        const draw = (comments) => {
+          ul.replaceChildren();
+          if (!comments.length) ul.appendChild(el('li', 'muted center', 'Noch keine Kommentare. Schreib den ersten!'));
+          comments.forEach((c) => {
+            const li = el('li', 'reel-comment');
+            li.appendChild(avatarEl(c.name, contacts[c.code] && contacts[c.code].avatar, c.code, 'sm'));
+            const body = el('div', 'reel-comment-body');
+            const head = el('div', 'reel-comment-head');
+            head.append(el('b', '', c.code === me.code ? 'Du' : c.name), el('span', 'muted', ' · ' + ago(c.ts)));
+            body.append(head, el('div', 'reel-comment-text', c.text));
+            li.appendChild(body);
+            if (c.code === me.code || r.author === me.code || admin) {
+              const del = el('button', 'ic reel-comment-del');
+              del.type = 'button'; del.title = 'Kommentar löschen'; del.innerHTML = '<svg><use href="#i-trash"/></svg>';
+              del.onclick = async () => {
+                if (!confirm('Kommentar löschen?')) return;
+                try { await signedPost('/uncomment', 'reeluncomment', `|${r.id}|${c.id}`, { id: r.id, cid: c.id }); r.comments = Math.max(0, r.comments - 1); updateItem(r, item); load(); }
+                catch { toast('⚠️ Konnte nicht gelöscht werden'); }
+              };
+              li.appendChild(del);
+            }
+            ul.appendChild(li);
+          });
+          ul.scrollTop = ul.scrollHeight;
+        };
+        const load = async () => {
+          try { const d = await (await fetch(api('/comments/' + r.id))).json(); r.comments = (d.comments || []).length; updateItem(r, item); draw(d.comments || []); }
+          catch { ul.replaceChildren(el('li', 'muted center', '⚠️ Konnte nicht geladen werden')); }
+        };
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          const text = input.value.trim();
+          if (!text || !needServer()) return;
+          send.disabled = true;
+          try {
+            await signedPost('/comment', 'reelcomment', `|${r.id}|${text}`, { id: r.id, text, name: me.name });
+            input.value = '';
+            await load();
+          } catch (err) { toast(err.message === 'slow down' ? '⚠️ Nicht so schnell 🙂' : '⚠️ Kommentar konnte nicht gesendet werden'); }
+          send.disabled = false;
+        };
+        load();
+        if (!window.matchMedia('(pointer: coarse)').matches) setTimeout(() => input.focus(), 50);
+      });
+    }
+
+    async function openViewers(r) {
+      sheet(`👀 ${r.views} ${r.views === 1 ? 'Aufruf' : 'Aufrufe'}`, async (box) => {
+        const ul = el('ul', 'reel-comments');
+        ul.appendChild(el('li', 'muted center', 'Wird geladen…'));
+        box.appendChild(ul);
+        try {
+          const d = await signedPost('/viewers', 'reelviewers', `|${r.id}`, { id: r.id });
+          ul.replaceChildren();
+          if (!d.viewers.length) ul.appendChild(el('li', 'muted center', 'Noch hat es niemand gesehen.'));
+          d.viewers.forEach((v) => {
+            const li = el('li', 'reel-comment');
+            li.append(avatarEl(v.name, contacts[v.code] && contacts[v.code].avatar, v.code, 'sm'));
+            const body = el('div', 'reel-comment-body');
+            body.append(el('b', '', v.name), el('div', 'muted', ago(v.ts)));
+            li.appendChild(body);
+            ul.appendChild(li);
+          });
+        } catch { ul.replaceChildren(el('li', 'muted center', '⚠️ Konnte nicht geladen werden')); }
+      });
+    }
+
+    function openMore(r, item) {
+      sheet('UpReel', (box) => {
+        const act = (label, icon, fn, cls = '') => {
+          const b = el('button', 'menu-item ' + cls);
+          b.type = 'button';
+          b.append(el('span', 'menu-ic', icon), el('span', '', label));
+          b.onclick = fn;
+          box.appendChild(b);
+        };
+        if (r.author !== me.code) act('Profil ansehen', '👤', () => { closeSheet(); openUser(r.author, r.name); });
+        if (r.author !== me.code) act('Melden', '🚩', () => { closeSheet(); report(r, item); }, 'danger');
+        if (r.author === me.code || admin) act(r.author === me.code ? 'Löschen' : 'Löschen (Admin)', '🗑️', async () => {
+          if (!confirm('Dieses UpReel für alle löschen?')) return;
+          try {
+            await signedPost('/delete', 'reeldelete', `|${r.id}`, { id: r.id });
+            closeSheet(); removeItem(r.id); toast('UpReel gelöscht');
+          } catch { toast('⚠️ Konnte nicht gelöscht werden'); }
+        }, 'danger');
+      });
+    }
+    function removeItem(id) {
+      list = list.filter((x) => x.id !== id);
+      const it = feedEl.querySelector(`.reel[data-id="${id}"]`);
+      if (it) { const v = it.querySelector('video'); v.pause(); v.removeAttribute('src'); it.remove(); }
+      renderEmpty();
+      setTimeout(playVisible, 50);
+    }
+    function report(r, item) {
+      sheet('Warum meldest du das?', (box) => {
+        ['Nacktheit oder sexuelle Inhalte', 'Gewalt oder Bedrohung', 'Mobbing oder Belästigung', 'Hass oder Beleidigung', 'Spam', 'Etwas anderes'].forEach((reason) => {
+          const b = el('button', 'menu-item', reason);
+          b.type = 'button';
+          b.onclick = async () => {
+            if (!needServer()) return;
+            try { await signedPost('/report', 'reelreport', `|${r.id}`, { id: r.id, reason }); closeSheet(); removeItem(r.id); toast('Danke! Das UpReel wurde gemeldet und wird dir nicht mehr angezeigt.'); }
+            catch { toast('⚠️ Melden hat nicht geklappt'); }
+          };
+          box.appendChild(b);
+        });
+      });
+    }
+
+    // ---------- Sound: wer hat ihn benutzt, selbst benutzen ----------
+    async function openSound(m) {
+      let t = music.track(m.id);
+      if (!t) { await music.catalog().catch(() => {}); t = music.track(m.id); }
+      let node = null;
+      const stopNode = () => { if (node) { try { node.stop(); } catch {} node = null; } };
+      sheet('🎵 Sound', (box) => {
+        const head = el('div', 'snd-head');
+        const play = el('button', 'mus-play big', '▶');
+        play.type = 'button'; play.title = 'Anhören';
+        play.onclick = async () => {
+          if (node) { stopNode(); play.textContent = '▶'; return; }
+          play.textContent = '…';
+          try {
+            const buf = await music.buffer(m.id);
+            const n = music.ctx().createBufferSource(); n.buffer = buf; n.connect(music.ctx().destination);
+            n.start(0, m.start || 0, 15); node = n; play.textContent = '■';
+            n.onended = () => { if (node === n) { node = null; play.textContent = '▶'; } };
+          } catch { play.textContent = '▶'; toast('⚠️ Konnte nicht geladen werden'); }
+        };
+        const meta = el('div', 'mus-meta');
+        meta.append(el('div', 'mus-name', t ? t.title : 'Musik'), el('div', 'muted', (t ? t.artist + ' · ' : '') + 'Ausschnitt ab ' + music.fmt(m.start || 0)));
+        head.append(play, meta);
+        box.appendChild(head);
+        const use = el('button', 'primary snd-use', '🎬 Sound benutzen');
+        use.type = 'button';
+        use.onclick = () => { stopNode(); closeSheet(); post({ music: m }); };
+        box.appendChild(use);
+        const cnt = el('div', 'rare-ach-title snd-count', 'UpReels mit diesem Sound');
+        const grid = el('div', 'reel-grid');
+        box.append(cnt, grid);
+        if (t) box.appendChild(el('div', 'mus-credit', music.credit(t) + ' · gekürzt, mit Stimme gemischt'));
+        fetch(api('/sound/' + m.id + '?me=' + me.code)).then((r) => r.json()).then((d) => {
+          cnt.textContent = d.count + (d.count === 1 ? ' UpReel' : ' UpReels') + ' mit diesem Sound';
+          (d.reels || []).forEach((r) => {
+            const th = el('button', 'reel-thumb');
+            th.type = 'button';
+            if (r.poster) th.style.backgroundImage = 'url("' + r.poster + '")';
+            th.appendChild(el('span', '', '▶ ' + count(r.views)));
+            th.onclick = () => { stopNode(); closeSheet(); openList(d.reels, r.id, '🎵 ' + (t ? t.title : 'Sound')); };
+            grid.appendChild(th);
+          });
+        }).catch(() => {});
+      });
+      // Beim Schließen des Blatts Vorhören stoppen
+      const obs = new MutationObserver(() => { if (!$('reelSheet')) { stopNode(); obs.disconnect(); } });
+      obs.observe(document.body, { childList: true });
+    }
+    // Beliebige Liste von Reels als eigenen Feed zeigen (z. B. alle mit einem Sound)
+    function openList(items, startId, title) {
+      if (mode === 'feed') feedCache = { list, done };
+      mode = 'list';
+      list = items.slice(); done = true;
+      feedEl.replaceChildren(...list.map(reelEl));
+      $('reelTitle').textContent = title;
+      $('reelBack').classList.remove('hidden');
+      show('viewReels');
+      renderEmpty();
+      const target = feedEl.querySelector('.reel[data-id="' + startId + '"]');
+      feedEl.scrollTop = target ? target.offsetTop : 0;
+      setTimeout(playVisible, 80);
+    }
+    function canPost() { return needServer(); }
+
+    // ---------- Posten ----------
+    function post(opts = {}) {
+      if (!needServer()) return;
+      if (!store.load('reelsRulesOk', false)) {
+        openModal((box) => {
+          box.appendChild(el('h3', '', '🎬 UpReels sind öffentlich'));
+          box.appendChild(el('p', 'muted', 'Alle WhatsUp-Nutzer können deine UpReels sehen, liken und kommentieren – nicht nur deine Freunde. Dein Name und dein Code werden angezeigt.'));
+          box.appendChild(el('p', 'muted', 'Poste nichts, was andere verletzt, und keine Videos von Leuten, die das nicht wollen. Gemeldete UpReels werden ausgeblendet.'));
+          box.appendChild(buttons(['Abbrechen', 'ghost', closeModal], ['Verstanden', 'primary', () => { store.save('reelsRulesOk', true); closeModal(); video.record('reel', opts); }]));
+        });
+        return;
+      }
+      video.record('reel', opts);
+    }
+
+    // Hochladen mit Fortschritt. true = geklappt
+    async function upload(res, caption) {
+      if (!needServer()) return false;
+      const bytes = new Uint8Array(await res.blob.arrayBuffer());
+      const meta = new TextEncoder().encode(JSON.stringify({ type: res.type, dur: res.dur, w: res.w, h: res.h, poster: res.poster, caption: String(caption || '').trim().slice(0, 150), name: me.name, music: res.music || null }));
+      const body = new Uint8Array(4 + meta.length + bytes.length);
+      new DataView(body.buffer).setUint32(0, meta.length);
+      body.set(meta, 4);
+      body.set(bytes, 4 + meta.length);
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const ts = Date.now();
+      const sig = await relay.signText(`reelup|${me.code}|${ts}|${digest}`);
+      const prog = $('vidUpload');
+      prog.querySelector('span').textContent = 'Wird hochgeladen…';
+      prog.classList.remove('hidden');
+      const bar = prog.querySelector('div');
+      bar.style.width = '0%';
+      const result = await new Promise((resolve) => {
+        const x = new XMLHttpRequest();
+        x.open('POST', api('/upload'));
+        x.setRequestHeader('Content-Type', 'application/octet-stream');
+        x.setRequestHeader('X-From', me.code);
+        x.setRequestHeader('X-Ts', String(ts));
+        x.setRequestHeader('X-Sig', sig);
+        x.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%'; };
+        x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch {} resolve(x.status === 200 ? d : { error: d.error || 'HTTP ' + x.status }); };
+        x.onerror = () => resolve({ error: 'Keine Verbindung' });
+        x.send(body);
+      });
+      prog.classList.add('hidden');
+      if (result.error) { toast('⚠️ ' + (result.error.length < 80 ? result.error : 'Hochladen fehlgeschlagen')); return false; }
+      stats.reels = (stats.reels || 0) + 1; saveMeta();
+      toast('🎬 UpReel gepostet!', true);
+      // Feed neu laden: das eigene Reel steht oben
+      mode = 'feed'; feedCache = null;
+      $('reelBack').classList.add('hidden');
+      $('reelTitle').textContent = 'UpReels';
+      show('viewReels');
+      await loadFeed(true);
+      feedEl.scrollTop = 0;
+      setTimeout(playVisible, 100);
+      return true;
+    }
+
+    $('reelPost').onclick = () => post();
+    $('reelMine').onclick = () => openUser(me.code, me.name);
+    $('reelBack').onclick = openFeed;
+    feedEl.addEventListener('scroll', () => { clearTimeout(feedEl._t); feedEl._t = setTimeout(playVisible, 120); }, { passive: true });
+
+    // Profil eines Freundes: kleine Vorschau seiner UpReels
+    function profileSection(code, name) {
+      const wrap = el('div', 'rare-ach reel-profile hidden');
+      wrap.appendChild(el('div', 'rare-ach-title', 'UpReels'));
+      const grid = el('div', 'reel-grid');
+      wrap.appendChild(grid);
+      fetch(api(`/user/${code}?me=${me.code}`)).then((r) => r.json()).then((d) => {
+        const rs = d.reels || [];
+        if (!rs.length) return;
+        wrap.classList.remove('hidden');
+        rs.slice(0, 6).forEach((r) => {
+          const t = el('button', 'reel-thumb');
+          t.type = 'button';
+          if (r.poster) t.style.backgroundImage = `url("${r.poster}")`;
+          t.appendChild(el('span', '', '▶ ' + count(r.views)));
+          t.onclick = () => { closeModal(); openUser(code, name); };
+          grid.appendChild(t);
+        });
+        if (rs.length > 6) {
+          const more = el('button', 'link rare-more', `Alle ${rs.length} ansehen`);
+          more.type = 'button';
+          more.onclick = () => { closeModal(); openUser(code, name); };
+          wrap.appendChild(more);
+        }
+      }).catch(() => {});
+      return wrap;
+    }
+
+    return { openFeed, upload, pauseAll, playVisible, profileSection, closeSheet, canPost, sheetOpen: () => !!$('reelSheet') };
   })();
 
   // ================= Anrufe (Audio & Video, direkt über WebRTC, Ende-zu-Ende verschlüsselt) =================
@@ -4156,6 +5034,9 @@
       start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus, reportAchievements, achStats,
       newIdentity, rotationRequest, rotate, serverHasKey, enabled, url,
       canSend: (code) => ready && enabled() && known[code] !== false,
+      ready: () => ready && enabled(),
+      // Für UpReels: Text mit dem eigenen Schlüssel unterschreiben (nur wenn der Briefkasten aktiv ist)
+      signText: async (text) => { if (!ready || !ident) throw new Error('not ready'); return sign(text); },
       publicKeys: () => (ident ? { sign: ident.signPub, enc: ident.encPub } : null),
       // Direkt (per Verbindung) erhaltene Schlüssel merken
       pinKeys(code, k) {

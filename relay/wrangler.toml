@@ -15,11 +15,25 @@ class_name = "AchStats"
 tag = "v1"
 new_sqlite_classes = ["Mailbox"]
 
+[[durable_objects.bindings]]
+name = "REELS"
+class_name = "Reels"
+
+[[durable_objects.bindings]]
+name = "REELBLOB"
+class_name = "ReelBlob"
+
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["AchStats"]
 
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["Reels", "ReelBlob"]
+
 [vars]
 # Absender-Angabe für Web-Push (VAPID)
 VAPID_SUBJECT = "https://github.com/Jeremy-Jud/whatsup"
+# UpReels: Codes, die jedes Reel und jeden Kommentar löschen dürfen (Komma-getrennt)
+ADMIN_CODES = "V5KGWG,QM3UNP"
 # Geheime Werte (nicht hier!): VAPID_PUBLIC, VAPID_PRIVATE  ->  wrangler secret put …

@@ -1,0 +1,452 @@
+{
+ "license": "CC BY 4.0",
+ "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+ "source": "https://incompetech.com",
+ "note": "Alle Tracks: Kevin MacLeod (incompetech.com), lizenziert unter Creative Commons: By Attribution 4.0. Für WhatsUp auf höchstens 2:30 gekürzt; in UpReels wird ein Ausschnitt mit der Stimme gemischt.",
+ "categories": [
+  {
+   "id": "happy",
+   "name": "😊 Gute Laune"
+  },
+  {
+   "id": "funny",
+   "name": "😂 Lustig"
+  },
+  {
+   "id": "chill",
+   "name": "😎 Chill"
+  },
+  {
+   "id": "groove",
+   "name": "🕺 Groove & Funk"
+  },
+  {
+   "id": "electro",
+   "name": "⚡ Elektro & 8-Bit"
+  },
+  {
+   "id": "epic",
+   "name": "🔥 Episch & Action"
+  },
+  {
+   "id": "tension",
+   "name": "🕵️ Spannung"
+  }
+ ],
+ "tracks": [
+  {
+   "id": "monkeys-spinning-monkeys",
+   "title": "Monkeys Spinning Monkeys",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 125,
+   "bpm": 144,
+   "isrc": "USUAN1400011"
+  },
+  {
+   "id": "carefree",
+   "title": "Carefree",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 150,
+   "bpm": 96,
+   "isrc": "USUAN1400037"
+  },
+  {
+   "id": "wallpaper",
+   "title": "Wallpaper",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 150,
+   "bpm": 92,
+   "isrc": "USUAN1100843"
+  },
+  {
+   "id": "happy-alley",
+   "title": "Happy Alley",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 80,
+   "bpm": 112,
+   "isrc": "USUAN1100482"
+  },
+  {
+   "id": "jaunty-gumption",
+   "title": "Jaunty Gumption",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 118,
+   "bpm": 146,
+   "isrc": "USUAN1300017"
+  },
+  {
+   "id": "upbeat-forever",
+   "title": "Upbeat Forever",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 150,
+   "bpm": 164,
+   "isrc": "USUAN1500063"
+  },
+  {
+   "id": "off-to-osaka",
+   "title": "Off to Osaka",
+   "artist": "Kevin MacLeod",
+   "cat": "happy",
+   "dur": 110,
+   "bpm": 239,
+   "isrc": "USUAN1100128"
+  },
+  {
+   "id": "sneaky-snitch",
+   "title": "Sneaky Snitch",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 137,
+   "bpm": 87,
+   "isrc": "USUAN1100772"
+  },
+  {
+   "id": "fluffing-a-duck",
+   "title": "Fluffing a Duck",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 67,
+   "bpm": 122,
+   "isrc": "USUAN1100768"
+  },
+  {
+   "id": "investigations",
+   "title": "Investigations",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 94,
+   "bpm": 94,
+   "isrc": "USUAN1100646"
+  },
+  {
+   "id": "pixel-peeker-polka-faster",
+   "title": "Pixel Peeker Polka - faster",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 150,
+   "bpm": 144,
+   "isrc": "USUAN1100833"
+  },
+  {
+   "id": "run-amok",
+   "title": "Run Amok",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 107,
+   "bpm": 148,
+   "isrc": "USUAN1400024"
+  },
+  {
+   "id": "spazzmatica-polka",
+   "title": "Spazzmatica Polka",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 96,
+   "bpm": 140,
+   "isrc": "USUAN1100721"
+  },
+  {
+   "id": "merry-go",
+   "title": "Merry Go",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 120,
+   "bpm": 132,
+   "isrc": "USUAN1100731"
+  },
+  {
+   "id": "breaktime",
+   "title": "Breaktime",
+   "artist": "Kevin MacLeod",
+   "cat": "funny",
+   "dur": 126,
+   "bpm": 84,
+   "isrc": "USUAN1100302"
+  },
+  {
+   "id": "lobby-time",
+   "title": "Lobby Time",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 150,
+   "bpm": 128,
+   "isrc": "USUAN1600054"
+  },
+  {
+   "id": "easy-lemon",
+   "title": "Easy Lemon",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 126,
+   "bpm": 82,
+   "isrc": "USUAN1200076"
+  },
+  {
+   "id": "cool-vibes",
+   "title": "Cool Vibes",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 150,
+   "bpm": 83,
+   "isrc": "USUAN1100863"
+  },
+  {
+   "id": "dreamer",
+   "title": "Dreamer",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 150,
+   "bpm": 100,
+   "isrc": "USUAN1600043"
+  },
+  {
+   "id": "chill-wave",
+   "title": "Chill Wave",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 150,
+   "bpm": 100,
+   "isrc": "USUAN1600048"
+  },
+  {
+   "id": "bossa-antigua",
+   "title": "Bossa Antigua",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 150,
+   "bpm": 70,
+   "isrc": "USUAN1700069"
+  },
+  {
+   "id": "dream-culture",
+   "title": "Dream Culture",
+   "artist": "Kevin MacLeod",
+   "cat": "chill",
+   "dur": 150,
+   "bpm": 70,
+   "isrc": "USUAN1300046"
+  },
+  {
+   "id": "funkorama",
+   "title": "Funkorama",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 150,
+   "bpm": 101,
+   "isrc": "USUAN1100474"
+  },
+  {
+   "id": "funky-chunk",
+   "title": "Funky Chunk",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 150,
+   "bpm": 115,
+   "isrc": "USUAN1500054"
+  },
+  {
+   "id": "werq",
+   "title": "Werq",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 150,
+   "bpm": 125,
+   "isrc": "USUAN1800005"
+  },
+  {
+   "id": "hep-cats",
+   "title": "Hep Cats",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 150,
+   "bpm": 90,
+   "isrc": "USUAN1500022"
+  },
+  {
+   "id": "local-forecast-elevator",
+   "title": "Local Forecast - Elevator",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 150,
+   "bpm": 82,
+   "isrc": "USUAN1300012"
+  },
+  {
+   "id": "kool-kats",
+   "title": "Kool Kats",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 150,
+   "bpm": 113,
+   "isrc": "USUAN1100601"
+  },
+  {
+   "id": "rollin-at-5",
+   "title": "Rollin at 5",
+   "artist": "Kevin MacLeod",
+   "cat": "groove",
+   "dur": 131,
+   "bpm": 210,
+   "isrc": "USUAN1400029"
+  },
+  {
+   "id": "itty-bitty-8-bit",
+   "title": "Itty Bitty 8 Bit",
+   "artist": "Kevin MacLeod",
+   "cat": "electro",
+   "dur": 150,
+   "bpm": 108,
+   "isrc": "USUAN1100764"
+  },
+  {
+   "id": "bit-shift",
+   "title": "Bit Shift",
+   "artist": "Kevin MacLeod",
+   "cat": "electro",
+   "dur": 150,
+   "bpm": 130,
+   "isrc": "USUAN1600045"
+  },
+  {
+   "id": "electrodoodle",
+   "title": "Electrodoodle",
+   "artist": "Kevin MacLeod",
+   "cat": "electro",
+   "dur": 150,
+   "bpm": 120,
+   "isrc": "USUAN1200079"
+  },
+  {
+   "id": "digital-lemonade",
+   "title": "Digital Lemonade",
+   "artist": "Kevin MacLeod",
+   "cat": "electro",
+   "dur": 150,
+   "bpm": 120,
+   "isrc": "USUAN1700010"
+  },
+  {
+   "id": "hyperfun",
+   "title": "Hyperfun",
+   "artist": "Kevin MacLeod",
+   "cat": "electro",
+   "dur": 150,
+   "bpm": 200,
+   "isrc": "USUAN1400038"
+  },
+  {
+   "id": "blip-stream",
+   "title": "Blip Stream",
+   "artist": "Kevin MacLeod",
+   "cat": "electro",
+   "dur": 150,
+   "bpm": 150,
+   "isrc": "USUAN1500056"
+  },
+  {
+   "id": "five-armies",
+   "title": "Five Armies",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 150,
+   "bpm": 238,
+   "isrc": "USUAN1100875"
+  },
+  {
+   "id": "heroic-age",
+   "title": "Heroic Age",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 97,
+   "bpm": 129,
+   "isrc": "USUAN1100848"
+  },
+  {
+   "id": "volatile-reaction",
+   "title": "Volatile Reaction",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 150,
+   "bpm": 155,
+   "isrc": "USUAN1400039"
+  },
+  {
+   "id": "hitman",
+   "title": "Hitman",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 150,
+   "bpm": 76,
+   "isrc": "USUAN1300013"
+  },
+  {
+   "id": "movement-proposition",
+   "title": "Movement Proposition",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 141,
+   "bpm": 126,
+   "isrc": "USUAN1100778"
+  },
+  {
+   "id": "cut-and-run",
+   "title": "Cut and Run",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 150,
+   "bpm": 109,
+   "isrc": "USUAN1100851"
+  },
+  {
+   "id": "achilles",
+   "title": "Achilles",
+   "artist": "Kevin MacLeod",
+   "cat": "epic",
+   "dur": 61,
+   "bpm": 110,
+   "isrc": "USUAN1100463"
+  },
+  {
+   "id": "spy-glass",
+   "title": "Spy Glass",
+   "artist": "Kevin MacLeod",
+   "cat": "tension",
+   "dur": 150,
+   "bpm": 110,
+   "isrc": "USUAN1500058"
+  },
+  {
+   "id": "covert-affair",
+   "title": "Covert Affair",
+   "artist": "Kevin MacLeod",
+   "cat": "tension",
+   "dur": 150,
+   "bpm": 68,
+   "isrc": "USUAN1100795"
+  },
+  {
+   "id": "crusade",
+   "title": "Crusade",
+   "artist": "Kevin MacLeod",
+   "cat": "tension",
+   "dur": 150,
+   "bpm": 89,
+   "isrc": "USUAN1100884"
+  },
+  {
+   "id": "desert-city",
+   "title": "Desert City",
+   "artist": "Kevin MacLeod",
+   "cat": "tension",
+   "dur": 89,
+   "bpm": 86,
+   "isrc": "USUAN1100564"
+  }
+ ]
+}

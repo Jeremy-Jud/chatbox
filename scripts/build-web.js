@@ -19,6 +19,8 @@ fs.cpSync(path.join(root, 'src'), out, { recursive: true });
 fs.copyFileSync(peerjs, path.join(out, 'peerjs.min.js'));
 fs.copyFileSync(path.join(root, 'web', 'web.css'), path.join(out, 'web.css'));
 fs.copyFileSync(path.join(root, 'web', 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
+// Musik für UpReels (CC BY 4.0, siehe web/music/CREDITS.md) – auch die Windows-App lädt sie von hier
+fs.cpSync(path.join(root, 'web', 'music'), path.join(out, 'music'), { recursive: true });
 for (const f of fs.readdirSync(path.join(root, 'web', 'icons'))) {
   fs.copyFileSync(path.join(root, 'web', 'icons', f), path.join(out, f));
 }

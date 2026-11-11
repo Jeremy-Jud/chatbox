@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:; media-src 'self' data: blob:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:; media-src 'self' data: blob: https:">
   <title>WhatsUp</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -24,6 +24,7 @@
       <symbol id="i-status" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5M20.5 12a8.5 8.5 0 0 1-8.5 8.5M12 20.5A8.5 8.5 0 0 1 3.5 12" /><path d="M3.5 12A8.5 8.5 0 0 1 12 3.5" stroke-dasharray="2.2 2.6"/><circle cx="12" cy="12" r="3.6"/></symbol>
       <symbol id="i-chats" viewBox="0 0 24 24"><path d="M4 11.5a7 6.2 0 0 1 14 0 7 6.2 0 0 1-9.6 5.8L4.5 19l1.2-3.4A6 6 0 0 1 4 11.5z"/><path d="M20 9.8a5.6 5.6 0 0 1 .6 6.6l.9 2.8-3-1.1"/></symbol>
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/></symbol>
+      <symbol id="i-reels" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="4"/><path d="M4 8h16M8.5 3.7L11 8M13.5 3.7L16 8"/><path d="M10.3 11.2v5.6l4.6-2.8z"/></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.6 3.5h2.6l1.4 4-2 1.4a11 11 0 0 0 6.5 6.5l1.4-2 4 1.4v2.6a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.6 5.7a2 2 0 0 1 2-2.2z"/></symbol>
@@ -200,6 +201,7 @@
       <h2>Info</h2>
       <div class="setting desktop-only"><span>Auf iPhone &amp; iPad</span><button id="webLink" class="link">Link kopieren</button></div>
       <div class="setting"><span>Quellcode & Downloads</span><button id="repoLink" class="link">GitHub</button></div>
+      <div class="setting music-credit-row"><span class="muted">Musik in UpReels: Kevin MacLeod (incompetech.com), lizenziert unter Creative Commons: By Attribution 4.0 (creativecommons.org/licenses/by/4.0). Gekürzt; in UpReels mit der Stimme gemischt.</span></div>
     </div>
   </section>
 
@@ -222,11 +224,27 @@
     <ul id="statusList" class="list st-list"></ul>
   </section>
 
+  <!-- UpReels: öffentliche Kurzvideos -->
+  <section id="viewReels" class="view hidden">
+    <div class="reel-top">
+      <button type="button" id="reelBack" class="reel-top-btn hidden" title="Zurück zum Feed"><svg><use href="#i-back"/></svg></button>
+      <span id="reelTitle" class="reel-title">UpReels</span>
+      <button type="button" id="reelMine" class="reel-top-btn reel-pill">Meine</button>
+      <button type="button" id="reelPost" class="reel-top-btn reel-pill primary-pill" title="UpReel aufnehmen"><svg><use href="#i-plus"/></svg> Posten</button>
+    </div>
+    <div id="reelFeed" class="reel-feed"></div>
+    <div id="reelEmpty" class="reel-empty hidden"></div>
+  </section>
+
   <!-- Leiste unten: Status · Chats · Du -->
   <nav id="tabbar" class="tabbar hidden">
     <button class="tab" data-tab="viewStatus" id="tabStatus">
       <span class="tab-ic"><svg><use href="#i-status"/></svg><span id="statusDot" class="tab-dot hidden"></span></span>
       <span class="tab-label">Status</span>
+    </button>
+    <button class="tab" data-tab="viewReels" id="tabReels">
+      <span class="tab-ic"><svg><use href="#i-reels"/></svg></span>
+      <span class="tab-label">UpReels</span>
     </button>
     <button class="tab" data-tab="viewList" id="tabChats">
       <span class="tab-ic"><svg><use href="#i-chats"/></svg><span id="chatsBadge" class="tab-badge hidden"></span></span>
@@ -311,7 +329,14 @@
       <div class="vidrec-time"><span class="rec-dot"></span><span id="vidTime">max. 1:00</span></div>
       <span class="vid-ic-space"></span>
     </div>
+    <button type="button" id="vidMusic" class="vid-music">🎵 Musik hinzufügen</button>
     <div class="vidrec-prog"><div id="vidProg"></div></div>
+    <div id="vidMix" class="vid-mix">
+      <label id="vidMixMusicRow" class="vid-mix-row"><span>🎵 Musik</span><input type="range" id="vidMixMusic" min="0" max="100" value="60"></label>
+      <label class="vid-mix-row"><span>🎤 Stimme</span><input type="range" id="vidMixVoice" min="0" max="100" value="100"></label>
+    </div>
+    <input id="vidCaption" class="vid-caption" maxlength="150" placeholder="Beschreibung (optional)" autocomplete="off">
+    <div id="vidUpload" class="vid-upload hidden"><div></div><span>Wird hochgeladen…</span></div>
     <div class="vidrec-bar">
       <button type="button" id="vidRetake" class="vid-pill">Nochmal</button>
       <span class="vid-ic-space"></span>

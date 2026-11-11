@@ -20,7 +20,8 @@ const ACH_ID_RE = /^[a-z0-9_]{1,24}$/;   // Erfolgs-IDs wie 'msg100'
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-From, X-Ts, X-Sig, X-Silent',
+  'Access-Control-Allow-Headers': 'Content-Type, X-From, X-Ts, X-Sig, X-Silent, Range',
+  'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length',
   'Access-Control-Max-Age': '86400',
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -57,6 +58,13 @@ export default {
     if (parts[1] === 'vapid') return json({ key: clean(env.VAPID_PUBLIC) || null });
     // Wie viele Personen auf der Welt besitzen welchen Erfolg? (öffentlich, nur Zahlen)
     if (parts[1] === 'achstats') return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/counts');
+    // UpReels: Videos gehen an den Speicher des jeweiligen Reels, alles andere an den zentralen Index
+    if (parts[1] === 'reels') {
+      if (parts[2] === 'video' && /^[a-z0-9]{16,40}$/.test(parts[3] || '') && (req.method === 'GET' || req.method === 'HEAD')) {
+        return env.REELBLOB.get(env.REELBLOB.idFromName(parts[3])).fetch(req);
+      }
+      return env.REELS.get(env.REELS.idFromName('global')).fetch(req);
+    }
     const code = String(parts[2] || '').toUpperCase();
     if (!CODE_RE.test(code)) return fail(400, 'bad code');
     const stub = env.MAILBOX.get(env.MAILBOX.idFromName(code));
@@ -302,6 +310,272 @@ export class AchStats {
       return new Response(this.cache.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS } });
     }
     return fail(404, 'not found');
+  }
+}
+
+// ---------- UpReels: öffentliche Kurzvideos für alle WhatsUp-Nutzer ----------
+// Jede schreibende Anfrage ist mit dem Schlüssel signiert, der beim Briefkasten des Codes hinterlegt ist.
+const REEL_ID_RE = /^[a-z0-9]{16,40}$/;
+const MUSIC_ID_RE = /^[a-z0-9-]{1,60}$/;   // Track-ID aus web/music/tracks.json
+const REEL_MAX_BYTES = 26 * 1024 * 1024;     // ein Video (App begrenzt auf 60 s, ~10 MB)
+const REELS_TOTAL_MAX = 4.5 * 1024 ** 3;     // Speichergrenze der kostenlosen Stufe (5 GB) nicht reißen
+const REEL_UPLOADS_PER_DAY = 15;
+const REEL_COMMENTS_PER_MIN = 10;
+const REEL_HIDE_AFTER_REPORTS = 3;
+const textOf = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, n);
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+// Hat der Besitzer dieses Codes den Text signiert? (fragt den Briefkasten des Codes)
+async function codeSigned(env, code, text, sig) {
+  if (!CODE_RE.test(code) || typeof sig !== 'string') return false;
+  const box = env.MAILBOX.get(env.MAILBOX.idFromName(code));
+  const r = await (await box.fetch(`https://box/v1/verify/${code}`, { method: 'POST', body: JSON.stringify({ text, sig }) })).json().catch(() => ({}));
+  return !!r.ok;
+}
+const admins = (env) => clean(env.ADMIN_CODES).toUpperCase().split(/[\s,]+/).filter((c) => CODE_RE.test(c));
+
+// Zentraler Index: Feed, Likes, Kommentare, Aufrufe, Meldungen
+export class Reels {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS reels (id TEXT PRIMARY KEY, author TEXT, name TEXT, caption TEXT, ts INTEGER, dur REAL, w INTEGER, h INTEGER,
+        poster TEXT, size INTEGER, likes INTEGER DEFAULT 0, views INTEGER DEFAULT 0, comments INTEGER DEFAULT 0, reports INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0);
+      CREATE INDEX IF NOT EXISTS reels_ts ON reels (ts);
+      CREATE INDEX IF NOT EXISTS reels_author ON reels (author, ts);
+      CREATE TABLE IF NOT EXISTS likes (reel TEXT, code TEXT, PRIMARY KEY (reel, code));
+      CREATE TABLE IF NOT EXISTS views (reel TEXT, code TEXT, name TEXT, ts INTEGER, PRIMARY KEY (reel, code));
+      CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, reel TEXT, code TEXT, name TEXT, text TEXT, ts INTEGER);
+      CREATE INDEX IF NOT EXISTS comments_reel ON comments (reel, id);
+      CREATE TABLE IF NOT EXISTS reports (reel TEXT, code TEXT, reason TEXT, ts INTEGER, PRIMARY KEY (reel, code));`);
+    // Musik (aus der festen Auswahl in der App): welcher Track, ab welcher Sekunde
+    for (const col of ['music_id TEXT', 'music_start REAL']) { try { this.sql.exec(`ALTER TABLE reels ADD COLUMN ${col}`); } catch { /* gibt es schon */ } }
+    this.sql.exec('CREATE INDEX IF NOT EXISTS reels_music ON reels (music_id, ts)');
+    this.rate = new Map();
+  }
+
+  limited(key, max, ms) {
+    const now = Date.now();
+    const r = this.rate.get(key);
+    if (!r || now - r.t > ms) { this.rate.set(key, { t: now, n: 1 }); return false; }
+    r.n++;
+    return r.n > max;
+  }
+  one(q, ...a) { const r = this.sql.exec(q, ...a).toArray(); return r[0] || null; }
+  pub(r, me) {
+    return {
+      id: r.id, author: r.author, name: r.name, caption: r.caption, ts: r.ts, dur: r.dur, w: r.w, h: r.h, poster: r.poster,
+      likes: r.likes, views: r.views, comments: r.comments,
+      music: r.music_id ? { id: r.music_id, start: r.music_start || 0 } : null,
+      liked: me ? !!this.one('SELECT 1 AS x FROM likes WHERE reel = ? AND code = ?', r.id, me) : false,
+    };
+  }
+  // Signierte Aktion prüfen: text = "<aktion>|<code>|<ts>|<extra>"
+  async signed(b, action, extra = '') {
+    const code = String(b.code || '').toUpperCase();
+    if (!freshTs(Number(b.ts))) return null;
+    return (await codeSigned(this.env, code, `${action}|${code}|${b.ts}${extra}`, b.sig)) ? code : null;
+  }
+
+  async fetch(req) {
+    const url = new URL(req.url);
+    const parts = url.pathname.split('/').filter(Boolean); // v1 / reels / <aktion> [/ id]
+    const action = parts[2], arg = parts[3];
+    try {
+      if (req.method === 'GET') {
+        const me = CODE_RE.test(url.searchParams.get('me') || '') ? url.searchParams.get('me') : null;
+        if (action === 'feed') {
+          const before = Number(url.searchParams.get('before')) || Date.now() + 60000;
+          const limit = Math.min(20, Math.max(1, Number(url.searchParams.get('limit')) || 8));
+          // Was man selbst gemeldet hat, bekommt man nicht mehr angezeigt
+          const rows = this.sql.exec('SELECT * FROM reels WHERE hidden = 0 AND ts < ? AND id NOT IN (SELECT reel FROM reports WHERE code = ?) ORDER BY ts DESC LIMIT ?', before, me || '', limit).toArray();
+          return json({ reels: rows.map((r) => this.pub(r, me)), admin: !!me && admins(this.env).includes(me) });
+        }
+        if (action === 'user' && CODE_RE.test(arg || '')) {
+          const rows = this.sql.exec('SELECT * FROM reels WHERE author = ? AND hidden = 0 ORDER BY ts DESC LIMIT 100', arg).toArray();
+          return json({ reels: rows.map((r) => this.pub(r, me)) });
+        }
+        if (action === 'sound' && MUSIC_ID_RE.test(arg || '')) { // alle Reels mit diesem Sound
+          const rows = this.sql.exec('SELECT * FROM reels WHERE music_id = ? AND hidden = 0 ORDER BY ts DESC LIMIT 60', arg).toArray();
+          const n = this.one('SELECT COUNT(*) AS n FROM reels WHERE music_id = ? AND hidden = 0', arg).n;
+          return json({ reels: rows.map((r) => this.pub(r, me)), count: n });
+        }
+        if (action === 'one' && REEL_ID_RE.test(arg || '')) {
+          const r = this.one('SELECT * FROM reels WHERE id = ? AND hidden = 0', arg);
+          return r ? json({ reel: this.pub(r, me) }) : fail(404, 'gone');
+        }
+        if (action === 'comments' && REEL_ID_RE.test(arg || '')) {
+          const rows = this.sql.exec('SELECT id, code, name, text, ts FROM comments WHERE reel = ? ORDER BY id LIMIT 300', arg).toArray();
+          return json({ comments: rows });
+        }
+        return fail(404, 'not found');
+      }
+      if (req.method !== 'POST') return fail(405, 'method');
+      if (action === 'upload') return this.upload(req);
+      const b = await req.json();
+      const id = String(b.id || '');
+      if (!REEL_ID_RE.test(id)) return fail(400, 'bad id');
+      const reel = this.one('SELECT * FROM reels WHERE id = ?', id);
+      if (!reel) return fail(404, 'gone');
+
+      if (action === 'like') {
+        const on = b.on ? 1 : 0;
+        const code = await this.signed(b, 'reellike', `|${id}|${on}`);
+        if (!code) return fail(403, 'forbidden');
+        if (on) this.sql.exec('INSERT OR IGNORE INTO likes (reel, code) VALUES (?, ?)', id, code);
+        else this.sql.exec('DELETE FROM likes WHERE reel = ? AND code = ?', id, code);
+        const n = this.one('SELECT COUNT(*) AS n FROM likes WHERE reel = ?', id).n;
+        this.sql.exec('UPDATE reels SET likes = ? WHERE id = ?', n, id);
+        return json({ ok: true, likes: n, liked: !!on });
+      }
+      if (action === 'view') {
+        const code = await this.signed(b, 'reelview', `|${id}`);
+        if (!code) return fail(403, 'forbidden');
+        if (code !== reel.author) {
+          this.sql.exec('INSERT OR IGNORE INTO views (reel, code, name, ts) VALUES (?, ?, ?, ?)', id, code, textOf(b.name, 24) || code, Date.now());
+          const n = this.one('SELECT COUNT(*) AS n FROM views WHERE reel = ?', id).n;
+          this.sql.exec('UPDATE reels SET views = ? WHERE id = ?', n, id);
+        }
+        return json({ ok: true });
+      }
+      if (action === 'viewers') { // nur für den Ersteller
+        const code = await this.signed(b, 'reelviewers', `|${id}`);
+        if (!code || (code !== reel.author && !admins(this.env).includes(code))) return fail(403, 'forbidden');
+        return json({ viewers: this.sql.exec('SELECT code, name, ts FROM views WHERE reel = ? ORDER BY ts DESC LIMIT 500', id).toArray() });
+      }
+      if (action === 'comment') {
+        const text = textOf(b.text, 300);
+        const code = await this.signed(b, 'reelcomment', `|${id}|${text}`);
+        if (!code) return fail(403, 'forbidden');
+        if (!text) return fail(400, 'empty');
+        if (this.limited('c' + code, REEL_COMMENTS_PER_MIN, 60000)) return fail(429, 'slow down');
+        const cid = this.one('INSERT INTO comments (reel, code, name, text, ts) VALUES (?, ?, ?, ?, ?) RETURNING id', id, code, textOf(b.name, 24) || code, text, Date.now()).id;
+        this.sql.exec('UPDATE reels SET comments = comments + 1 WHERE id = ?', id);
+        return json({ ok: true, id: cid });
+      }
+      if (action === 'uncomment') {
+        const cid = Number(b.cid);
+        const code = await this.signed(b, 'reeluncomment', `|${id}|${cid}`);
+        const c = this.one('SELECT code FROM comments WHERE id = ? AND reel = ?', cid, id);
+        if (!code || !c || (c.code !== code && reel.author !== code && !admins(this.env).includes(code))) return fail(403, 'forbidden');
+        this.sql.exec('DELETE FROM comments WHERE id = ?', cid);
+        this.sql.exec('UPDATE reels SET comments = MAX(0, comments - 1) WHERE id = ?', id);
+        return json({ ok: true });
+      }
+      if (action === 'report') {
+        const reason = textOf(b.reason, 100);
+        const code = await this.signed(b, 'reelreport', `|${id}`);
+        if (!code) return fail(403, 'forbidden');
+        this.sql.exec('INSERT OR IGNORE INTO reports (reel, code, reason, ts) VALUES (?, ?, ?, ?)', id, code, reason, Date.now());
+        const n = this.one('SELECT COUNT(*) AS n FROM reports WHERE reel = ?', id).n;
+        this.sql.exec('UPDATE reels SET reports = ?, hidden = ? WHERE id = ?', n, n >= REEL_HIDE_AFTER_REPORTS ? 1 : reel.hidden, id);
+        return json({ ok: true });
+      }
+      if (action === 'delete') { // Ersteller oder Admin
+        const code = await this.signed(b, 'reeldelete', `|${id}`);
+        if (!code || (code !== reel.author && !admins(this.env).includes(code))) return fail(403, 'forbidden');
+        await this.env.REELBLOB.get(this.env.REELBLOB.idFromName(id)).fetch(`https://blob/v1/reels/drop/${id}`, { method: 'POST' });
+        for (const t of ['likes', 'views', 'comments', 'reports']) this.sql.exec(`DELETE FROM ${t} WHERE reel = ?`, id);
+        this.sql.exec('DELETE FROM reels WHERE id = ?', id);
+        return json({ ok: true });
+      }
+      return fail(404, 'not found');
+    } catch (e) {
+      return fail(500, String(e && e.message || e).slice(0, 200));
+    }
+  }
+
+  // Hochladen. Body: [4 Byte Länge der Metadaten][Metadaten-JSON][Video]
+  // Signatur: "reelup|<code>|<ts>|<sha256 des ganzen Bodys>"
+  async upload(req) {
+    const code = String(req.headers.get('X-From') || '').toUpperCase();
+    const ts = Number(req.headers.get('X-Ts'));
+    if (!CODE_RE.test(code) || !freshTs(ts)) return fail(400, 'bad request');
+    const len = Number(req.headers.get('Content-Length') || 0);
+    if (len > REEL_MAX_BYTES + 400 * 1024) return fail(413, 'too large');
+    const body = new Uint8Array(await req.arrayBuffer());
+    if (body.length < 8 || body.length > REEL_MAX_BYTES + 400 * 1024) return fail(413, 'too large');
+    const digest = hex(await crypto.subtle.digest('SHA-256', body));
+    if (!(await codeSigned(this.env, code, `reelup|${code}|${ts}|${digest}`, req.headers.get('X-Sig') || ''))) return fail(403, 'bad signature');
+
+    const day = Math.floor(Date.now() / 86400000);
+    const today = this.one('SELECT COUNT(*) AS n FROM reels WHERE author = ? AND ts >= ?', code, day * 86400000).n;
+    if (today >= REEL_UPLOADS_PER_DAY) return fail(429, 'Du hast heute schon genug UpReels gepostet. Morgen wieder!');
+    const total = this.one('SELECT COALESCE(SUM(size), 0) AS s FROM reels').s;
+
+    const mlen = new DataView(body.buffer, body.byteOffset, 4).getUint32(0);
+    if (mlen > 300 * 1024 || 4 + mlen >= body.length) return fail(400, 'bad meta');
+    let meta;
+    try { meta = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + mlen))); } catch { return fail(400, 'bad meta'); }
+    const video = body.subarray(4 + mlen);
+    if (video.length > REEL_MAX_BYTES) return fail(413, 'too large');
+    if (total + video.length > REELS_TOTAL_MAX) return fail(507, 'Der UpReels-Speicher ist gerade voll.');
+    const type = /^video\/(mp4|webm|quicktime)$/.test(meta.type) ? meta.type : 'video/mp4';
+    const poster = typeof meta.poster === 'string' && meta.poster.length <= 200 * 1024 && /^data:image\/(jpeg|webp|png);base64,/.test(meta.poster) ? meta.poster : null;
+    const dim = (v) => { const n = Math.round(Number(v)); return n > 0 && n < 10000 ? n : 720; };
+    const dur = Math.max(0, Math.min(120, Number(meta.dur) || 0));
+    const music = meta.music && MUSIC_ID_RE.test(String(meta.music.id || '')) ? { id: meta.music.id, start: Math.max(0, Math.min(600, Number(meta.music.start) || 0)) } : null;
+
+    const id = hex(crypto.getRandomValues(new Uint8Array(12)));
+    const blob = this.env.REELBLOB.get(this.env.REELBLOB.idFromName(id));
+    const put = await blob.fetch(`https://blob/v1/reels/put/${id}`, { method: 'POST', headers: { 'X-Type': type }, body: video });
+    if (!put.ok) return fail(500, 'store failed');
+    this.sql.exec('INSERT INTO reels (id, author, name, caption, ts, dur, w, h, poster, size, music_id, music_start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, code, textOf(meta.name, 24) || code, textOf(meta.caption, 150), Date.now(), dur, dim(meta.w), dim(meta.h), poster, video.length,
+      music ? music.id : null, music ? music.start : null);
+    return json({ ok: true, reel: this.pub(this.one('SELECT * FROM reels WHERE id = ?', id), code) });
+  }
+}
+
+// Speicher für EIN Video, in 1-MB-Stücken. Liefert Teilbereiche (Range), die Safari/iPhone zum Abspielen braucht.
+export class ReelBlob {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+      CREATE TABLE IF NOT EXISTS chunks (idx INTEGER PRIMARY KEY, data BLOB);`);
+  }
+  getMeta(k) { const r = this.sql.exec('SELECT v FROM meta WHERE k = ?', k).toArray(); return r.length ? r[0].v : null; }
+
+  async fetch(req) {
+    const url = new URL(req.url);
+    const action = url.pathname.split('/').filter(Boolean)[2];
+    if (action === 'put' && req.method === 'POST') { // nur intern vom Index
+      const body = new Uint8Array(await req.arrayBuffer());
+      this.sql.exec('DELETE FROM chunks');
+      for (let i = 0; i * CHUNK < body.length; i++) this.sql.exec('INSERT INTO chunks (idx, data) VALUES (?, ?)', i, body.subarray(i * CHUNK, (i + 1) * CHUNK));
+      this.sql.exec('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?), (?, ?)', 'size', String(body.length), 'type', req.headers.get('X-Type') || 'video/mp4');
+      return json({ ok: true });
+    }
+    if (action === 'drop' && req.method === 'POST') { // nur intern vom Index
+      this.sql.exec('DELETE FROM chunks');
+      this.sql.exec('DELETE FROM meta');
+      return json({ ok: true });
+    }
+    if (action !== 'video') return fail(404, 'not found');
+    const size = Number(this.getMeta('size') || 0);
+    if (!size) return fail(404, 'gone');
+    const type = this.getMeta('type') || 'video/mp4';
+    const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=31536000, immutable', ...CORS };
+    let start = 0, end = size - 1, partial = false;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('Range') || '');
+    if (m && (m[1] || m[2])) {
+      partial = true;
+      if (m[1]) { start = Number(m[1]); if (m[2]) end = Math.min(size - 1, Number(m[2])); }
+      else { start = Math.max(0, size - Number(m[2])); }
+      if (start > end || start >= size) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}`, ...CORS } });
+    }
+    const len = end - start + 1;
+    if (req.method === 'HEAD') return new Response(null, { status: partial ? 206 : 200, headers: { ...headers, 'Content-Length': String(len), ...(partial ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}) } });
+    const rows = this.sql.exec('SELECT idx, data FROM chunks WHERE idx BETWEEN ? AND ? ORDER BY idx', Math.floor(start / CHUNK), Math.floor(end / CHUNK)).toArray();
+    const out = new Uint8Array(len);
+    let o = 0;
+    for (const r of rows) {
+      const d = new Uint8Array(r.data), base = r.idx * CHUNK;
+      const a = Math.max(start, base) - base, z = Math.min(end + 1, base + d.length) - base;
+      if (z > a) { out.set(d.subarray(a, z), o); o += z - a; }
+    }
+    return new Response(out, { status: partial ? 206 : 200, headers: { ...headers, 'Content-Length': String(len), ...(partial ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}) } });
   }
 }
 
