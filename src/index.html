@@ -151,10 +151,16 @@
           <button id="avatarRemove" class="link muted-link">Entfernen</button>
         </div>
       </div>
-      <div class="field">Profilrahmen<div id="frameGrid" class="frame-grid"></div></div>
       <label class="field">Name<input id="profName" maxlength="24" autocomplete="off"></label>
       <label class="field">Status<input id="profStatus" maxlength="80" placeholder="Optional" autocomplete="off"></label>
-      <div class="field">Status als Banner<div id="bannerGrid" class="banner-grid"></div></div>
+      <!-- Personalisieren: Profilrahmen und Banner zum Ausklappen -->
+      <details class="personalize" id="personalize">
+        <summary><span class="pers-ic">🎨</span><span class="pers-title">Personalisieren<span class="muted pers-sub">Profilrahmen und Banner</span></span><span class="pers-arrow">›</span></summary>
+        <div class="pers-body">
+          <div class="field">Profilrahmen<div id="frameGrid" class="frame-grid"></div></div>
+          <div class="field">Banner um deinen Status<div id="bannerGrid" class="banner-grid"></div></div>
+        </div>
+      </details>
       <div class="setting">
         <span>Dein Code</span>
         <span class="row-end"><span class="code-sm" id="profCode"></span>
@@ -334,15 +340,28 @@
       <button type="button" id="vidMusicX" class="vid-music-x hidden" title="Musik entfernen"><svg><use href="#i-x"/></svg></button>
     </div>
     <div class="vidrec-prog"><div id="vidProg"></div></div>
+    <div class="vidrec-nocam">📷 Keine Kamera verfügbar<br><span>Wähle unten links ein Video oder Fotos aus der Galerie.</span></div>
+    <!-- Galerie-Video kürzen -->
+    <div id="vidTrim" class="vid-edit vid-trim">
+      <div id="vidTrimLabel" class="vid-edit-label"></div>
+      <div class="vid-trim-bar"><div id="vidTrimFill" class="vid-trim-fill"></div></div>
+      <label class="vid-mix-row"><span>Start</span><input type="range" id="vidTrimStart" min="0" max="60" step="0.1" value="0"></label>
+      <label class="vid-mix-row"><span>Ende</span><input type="range" id="vidTrimEnd" min="0" max="60" step="0.1" value="60"></label>
+    </div>
+    <!-- Fotos: Dauer bzw. Slideshow -->
+    <div id="vidSlides" class="vid-edit vid-slides">
+      <div id="vidSlideLabel" class="vid-edit-label"></div>
+      <label class="vid-mix-row"><span id="vidSlideName">Pro Bild</span><input type="range" id="vidSlideSecs" min="1" max="6" step="0.5" value="3"></label>
+    </div>
     <div id="vidMix" class="vid-mix">
       <label id="vidMixMusicRow" class="vid-mix-row"><span>🎵 Musik</span><input type="range" id="vidMixMusic" min="0" max="100" value="60"></label>
-      <label class="vid-mix-row"><span>🎤 Stimme</span><input type="range" id="vidMixVoice" min="0" max="100" value="100"></label>
+      <label id="vidMixVoiceRow" class="vid-mix-row"><span>🎤 Ton</span><input type="range" id="vidMixVoice" min="0" max="100" value="100"></label>
     </div>
     <input id="vidCaption" class="vid-caption" maxlength="150" placeholder="Beschreibung (optional)" autocomplete="off">
     <div id="vidUpload" class="vid-upload hidden"><div></div><span>Wird hochgeladen…</span></div>
     <div class="vidrec-bar">
       <button type="button" id="vidRetake" class="vid-pill">Nochmal</button>
-      <span class="vid-ic-space"></span>
+      <button type="button" id="vidGallery" class="vid-ic vid-gallery" title="Video oder Fotos aus der Galerie"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><circle cx="9" cy="10" r="1.7"/><path d="M20.5 16l-5-5-8.5 8"/></svg></button>
       <button type="button" id="vidShutter" class="vid-shutter" title="Aufnahme starten/stoppen"><span></span></button>
       <button type="button" id="vidFlip" class="vid-ic" title="Kamera drehen (geht auch während der Aufnahme)"><svg><use href="#i-flip"/></svg></button>
       <button type="button" id="vidSend" class="send vid-send" title="Video senden"><svg><use href="#i-send"/></svg></button>
@@ -358,6 +377,7 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <input type="file" id="fileInput" accept="image/*" hidden>
+  <input type="file" id="reelFileInput" accept="image/*,video/*" multiple hidden>
   <input type="file" id="avatarInput" accept="image/*" hidden>
   <input type="file" id="groupAvatarInput" accept="image/*" hidden>
   <input type="file" id="statusInput" accept="image/*" multiple hidden>

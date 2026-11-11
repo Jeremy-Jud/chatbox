@@ -815,3 +815,41 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .reel.landscape .reel-btn { background: rgba(255, 255, 255, .14); }
 /* Verlauf über die ganze Breite (keine Kante neben den Knöpfen), Text weicht den Knöpfen aus */
 .reel-info { right: 0; padding-right: 72px; }
+
+/* Einstellungen: „Personalisieren“ zum Ausklappen */
+.personalize { border: 1px solid var(--line); border-radius: 14px; margin: 4px 0 8px; background: var(--bg); overflow: hidden; }
+.personalize summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 11px 12px; cursor: pointer; user-select: none; }
+.personalize summary::-webkit-details-marker { display: none; }
+.personalize summary:hover { background: var(--soft); }
+.pers-ic { font-size: 20px; width: 28px; text-align: center; }
+.pers-title { flex: 1; display: flex; flex-direction: column; font-weight: 600; }
+.pers-sub { font-weight: 400; font-size: 11.5px; }
+.pers-arrow { font-size: 20px; color: var(--muted); transition: transform .2s; }
+.personalize[open] .pers-arrow { transform: rotate(90deg); }
+.pers-body { padding: 4px 12px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+
+/* ================= UpReels: Galerie (Video kürzen, Fotos/Slideshow) ================= */
+.vid-gallery svg { fill: none; stroke: currentColor; stroke-width: 1.8; }
+.vidrec:not([data-target="reel"]) .vid-gallery, .vidrec[data-mode="rec"] .vid-gallery { visibility: hidden; }
+.vidrec[data-mode="done"] .vid-gallery { display: none; }
+/* Ohne Kamera: nur Galerie */
+.vidrec-nocam { display: none; position: absolute; top: 40%; left: 24px; right: 24px; text-align: center; font-size: 16px; font-weight: 600; line-height: 1.5; }
+.vidrec-nocam span { font-size: 13px; font-weight: 400; opacity: .75; }
+.vidrec.nocam .vidrec-nocam { display: block; }
+.vidrec.nocam .vid-canvas, .vidrec.nocam .vid-shutter, .vidrec.nocam #vidFlip { visibility: hidden; }
+.vidrec.nocam .vid-gallery { background: var(--accent); width: 56px; height: 56px; animation: gal-pulse 1.6s ease-in-out infinite; }
+@keyframes gal-pulse { 50% { box-shadow: 0 0 0 8px rgba(26, 140, 255, .25); } }
+/* Fotos: Vorschau ist die Zeichenfläche, nicht das Video */
+.vidrec[data-src="photos"][data-mode="done"] .vid-canvas { display: block; }
+.vidrec[data-src="photos"][data-mode="done"] .vid-preview { display: none; }
+.vidrec[data-src="photos"] #vidMixVoiceRow { display: none; }
+/* Bearbeiten-Felder */
+.vid-edit { display: none; margin: 10px 12px 0; padding: 8px 12px; border-radius: 14px; background: rgba(255, 255, 255, .1); color: #fff; }
+.vidrec[data-src="video"][data-mode="done"] .vid-trim { display: block; }
+.vidrec[data-src="photos"][data-mode="done"] .vid-slides { display: block; }
+.vid-edit-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.vid-trim-bar { position: relative; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .18); margin: 2px 0 6px; }
+.vid-trim-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.personalize { flex-shrink: 0; } /* .settings ist ein Flex-Container: nicht zusammendrücken */
+.vid-caption { width: calc(100% - 24px); box-sizing: border-box; }
+.vidrec.nocam .vid-shutter span { visibility: hidden; transition: none; }
