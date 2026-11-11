@@ -329,7 +329,10 @@
       <div class="vidrec-time"><span class="rec-dot"></span><span id="vidTime">max. 1:00</span></div>
       <span class="vid-ic-space"></span>
     </div>
-    <button type="button" id="vidMusic" class="vid-music">🎵 Musik hinzufügen</button>
+    <div class="vid-music-wrap">
+      <button type="button" id="vidMusic" class="vid-music">🎵 Musik hinzufügen</button>
+      <button type="button" id="vidMusicX" class="vid-music-x hidden" title="Musik entfernen"><svg><use href="#i-x"/></svg></button>
+    </div>
     <div class="vidrec-prog"><div id="vidProg"></div></div>
     <div id="vidMix" class="vid-mix">
       <label id="vidMixMusicRow" class="vid-mix-row"><span>🎵 Musik</span><input type="range" id="vidMixMusic" min="0" max="100" value="60"></label>

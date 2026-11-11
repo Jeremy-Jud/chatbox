@@ -2763,7 +2763,7 @@
           play.onclick = (e) => { e.stopPropagation(); playPreview(t.id, Math.min(30, t.dur / 4), 20, play); };
           const meta = el('div', 'mus-meta');
           meta.append(el('div', 'mus-name', t.title), el('div', 'muted', `${t.artist} · ${fmt(t.dur)}`));
-          const use = el('button', 'mus-use', current && current.id === t.id ? 'Gewählt' : 'Wählen');
+          const use = el('button', 'mus-use', current && current.id === t.id ? '✓ Ausschnitt' : 'Wählen');
           use.type = 'button';
           use.onclick = (e) => { e.stopPropagation(); drawCut(t, current && current.id === t.id ? current.start : 0); };
           li.append(play, meta, use);
@@ -2771,6 +2771,9 @@
           ul.appendChild(li);
         });
         box.appendChild(ul);
+        // Gewählten Song in der Liste sichtbar machen
+        const cur = ul.querySelector('.mus-item.cur');
+        if (cur) setTimeout(() => cur.scrollIntoView({ block: 'center' }), 0);
         if (current) {
           const none = el('button', 'menu-item danger', '🚫 Ohne Musik');
           none.type = 'button';
@@ -2819,7 +2822,7 @@
         buffer(t.id).catch(() => {}); // schon mal laden
       };
 
-      if (current && track(current.id)) drawCut(track(current.id), current.start); else drawList();
+      drawList(); // immer mit der Liste beginnen – so kann man jederzeit einen anderen Song nehmen
     }
     function closePicker() { stopPreview(); const s = $('musicSheet'); if (s) s.remove(); }
 
@@ -2892,9 +2895,12 @@
       const t = st && st.music && music.track(st.music.id);
       b.textContent = t ? `🎵 ${t.title} · ab ${fmt(st.music.start)}` : '🎵 Musik hinzufügen';
       b.classList.toggle('on', !!t);
+      $('vidMusicX').classList.toggle('hidden', !t);
       $('vidMixMusic').disabled = !t;
       $('vidMixMusicRow').classList.toggle('off', !t);
     }
+    // ✕ neben dem Song: Musik mit einem Tipp entfernen
+    $('vidMusicX').onclick = () => { if (st && !st.rec && !st.mixing) { setMusic(null); toast('Musik entfernt'); } };
     $('vidMusic').onclick = async () => {
       if (!st || st.rec) return;
       await music.catalog().catch(() => {});
@@ -3017,7 +3023,10 @@
       hideEmoji();
       if (mix) music.ctx(); // Ton der Vorschau läuft über Web Audio: im Klick wieder freischalten
       lastTarget = target;
-      st = { chatId: target === 'chat' ? activeChat : null, target, facing: 'user', chunks: [], music: null, levels: { music: 0.6, voice: 1 } };
+      // Jede neue Aufnahme startet ohne Musik und mit Standard-Lautstärken (nur „Sound benutzen“ wählt vor)
+      stopMusic();
+      st = { chatId: target === 'chat' ? activeChat : null, target, facing: 'user', chunks: [], music: null, musicBuf: null, levels: { music: 0.6, voice: 1 } };
+      renderMusicChip();
       ov.dataset.target = target;
       $('vidCaption').value = '';
       $('vidMixMusic').value = 60; $('vidMixVoice').value = 100;
@@ -3175,9 +3184,8 @@
     // Nochmal: Ergebnis verwerfen und Kamera wieder an
     async function retake() {
       if (!st || st.mixing) return;
-      const keep = st.music; // gewählte Musik bleibt
       close();
-      await open(lastTarget, { music: keep });
+      await open(lastTarget); // neues Video = neu anfangen, auch ohne Musik
     }
 
     function close() {
@@ -3363,6 +3371,7 @@
     function reelEl(r) {
       const item = el('div', 'reel');
       item.dataset.id = r.id;
+      if (r.w > r.h) item.classList.add('landscape'); // Querformat ganz zeigen, Hochkant füllt den Bereich
       const v = document.createElement('video');
       v.className = 'reel-video';
       v.playsInline = true; v.loop = true; v.preload = 'none';

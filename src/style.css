@@ -779,3 +779,27 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .snd-count { margin: 12px 4px 6px; }
 .reel-sheet .reel-grid { overflow-y: auto; max-height: 40vh; }
 .music-credit-row span { font-size: 11px; line-height: 1.4; }
+
+/* ================= UpReels hell (wie der Rest der App) ================= */
+#viewReels { background: var(--bg); color: var(--fg); }
+.reel-top { background: var(--bg); }
+.reel-top-btn { color: var(--fg); }
+.reel-pill:not(.primary-pill) { background: var(--soft); color: var(--fg); }
+.reel-pill:not(.primary-pill):hover { background: var(--line); }
+.reel { background: var(--bg); }
+/* Hochkant-Videos füllen den ganzen Bereich (keine Ränder), Querformat passt komplett hinein */
+.reel-video { background: var(--bg); object-fit: cover; }
+.reel.landscape .reel-video { object-fit: contain; }
+.reel-empty { color: var(--muted); }
+/* Knöpfe rechts mit dunklem Hintergrund, damit sie auf jedem Bild lesbar sind */
+.reel-side { right: 8px; gap: 10px; }
+.reel-btn { background: rgba(0, 0, 0, .32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border-radius: 24px; width: 50px; min-width: 0; padding: 6px 0 5px; }
+.reel-btn.more { padding: 4px 0 6px; }
+.reel-btn-ic { font-size: 24px; }
+/* Musik-Knopf mit ✕ zum Entfernen */
+.vid-music-wrap { display: none; position: absolute; top: 58px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px); z-index: 2; align-items: center; gap: 6px; }
+.vidrec[data-target="reel"]:not([data-mode="rec"]) .vid-music-wrap { display: flex; }
+.vid-music-wrap .vid-music { display: block !important; position: static; transform: none; max-width: 100%; min-width: 0; }
+.vid-music-x { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; display: grid; place-items: center; cursor: pointer; border: 1px solid rgba(255, 255, 255, .25); }
+.vid-music-x svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.vid-music-x.hidden { display: none !important; }
