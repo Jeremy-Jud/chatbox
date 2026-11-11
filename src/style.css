@@ -616,3 +616,49 @@ button.primary:disabled { opacity: .35; cursor: default; }
   text-shadow: 0 1px 2px rgba(0, 0, 0, .4); vertical-align: 1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
 }
 .info-head { padding-top: 10px; }
+
+/* Videos: Aufnahme (Kamera drehen geht auch während der Aufnahme) */
+.vidrec { position: fixed; inset: 40px 0 0; z-index: 25; background: #000; color: #fff; display: flex; flex-direction: column; }
+.vidrec-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+.vid-src { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+.vid-canvas, .vid-preview { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block; }
+.vid-canvas.mirror { transform: scaleX(-1); }
+.vid-preview { width: 100%; height: 100%; background: #000; }
+.vidrec-loading { position: absolute; color: #bbb; font-size: 13px; display: none; }
+.vidrec.loading .vidrec-loading { display: block; }
+.vidrec.loading .vid-canvas { visibility: hidden; }
+.vidrec-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: linear-gradient(rgba(0, 0, 0, .55), transparent); }
+.vidrec-time { display: flex; align-items: center; gap: 7px; font-size: 14px; font-variant-numeric: tabular-nums; background: rgba(0, 0, 0, .35); padding: 4px 10px; border-radius: 14px; }
+.vidrec .rec-dot { display: none; }
+.vidrec[data-mode="rec"] .rec-dot { display: block; }
+.vidrec-prog { height: 3px; background: rgba(255, 255, 255, .15); }
+.vidrec-prog > div { height: 100%; width: 0; background: var(--danger); transition: width .2s linear; }
+.vidrec-bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; justify-items: center; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); gap: 12px; }
+.vidrec-bar > :first-child { justify-self: start; }
+.vid-ic { width: 44px; height: 44px; border-radius: 50%; background: rgba(255, 255, 255, .14); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.vid-ic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.vid-ic:hover { background: rgba(255, 255, 255, .24); }
+.vid-ic-space { width: 44px; }
+.vid-shutter { width: 70px; height: 70px; border-radius: 50%; border: 4px solid #fff; display: grid; place-items: center; cursor: pointer; background: none; }
+.vid-shutter span { width: 54px; height: 54px; border-radius: 50%; background: var(--danger); transition: all .2s; }
+.vidrec[data-mode="rec"] .vid-shutter span { width: 26px; height: 26px; border-radius: 6px; }
+.vid-pill { color: #fff; background: rgba(255, 255, 255, .14); border-radius: 18px; padding: 9px 16px; font-size: 14px; cursor: pointer; }
+.vid-send { width: 52px; height: 52px; }
+.vid-send svg { width: 22px; height: 22px; }
+/* Was in welchem Schritt zu sehen ist */
+.vidrec .vid-preview, .vidrec #vidRetake, .vidrec .vid-send { display: none; }
+.vidrec[data-mode="done"] .vid-canvas, .vidrec[data-mode="done"] .vid-shutter, .vidrec[data-mode="done"] #vidFlip { display: none; }
+.vidrec[data-mode="done"] .vid-preview, .vidrec[data-mode="done"] #vidRetake, .vidrec[data-mode="done"] .vid-send { display: grid; }
+.vidrec[data-mode="done"] .vid-preview { display: block; }
+.vidrec[data-mode="done"] .vidrec-bar > .vid-ic-space { display: none; }
+.vidrec[data-mode="done"] .vidrec-bar { grid-template-columns: 1fr auto; }
+.vidrec[data-mode="done"] .vid-send { justify-self: end; }
+
+/* Videos im Chat */
+.vid { position: relative; border-radius: 14px; overflow: hidden; background: #111; cursor: pointer; max-width: 100%; }
+.vid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vid-play { position: absolute; inset: 0; margin: auto; width: 46px; height: 46px; border-radius: 50%; background: rgba(0, 0, 0, .5); color: #fff; display: grid; place-items: center; }
+.vid-play svg { width: 20px; height: 20px; fill: currentColor; stroke: none; margin-left: 3px; }
+.vid-dur { position: absolute; left: 8px; bottom: 6px; color: #fff; font-size: 11px; text-shadow: 0 1px 2px rgba(0, 0, 0, .7); }
+.vid:hover .vid-play { background: rgba(0, 0, 0, .65); }
+.vid-full { max-width: 100%; max-height: calc(100% - 50px); border-radius: 12px; background: #000; }

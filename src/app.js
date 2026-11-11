@@ -13,13 +13,15 @@
   const MAX_MB = 25;                                              // max. Größe pro Bild/GIF
   const MAX_MEDIA = Math.ceil(MAX_MB * 1024 * 1024 * 4 / 3) + 64; // als Base64-Daten-URL
   const OLD_MAX_MEDIA = 10 * 1024 * 1024; // Grenze bis v1.10 – ältere Versionen lehnen Größeres ab
-  const PROTO = 5;                        // Protokoll-Version (3 = große Dateien bis 25 MB, 4 = Sprachnachrichten, 5 = Sticker)
+  const PROTO = 6;                        // Protokoll-Version (3 = große Dateien bis 25 MB, 4 = Sprachnachrichten, 5 = Sticker, 6 = Videos)
   const STICKER_OWNER = 'V5KGWG';         // nur dieser Nutzer hat die Sticker-Funktion
   const STICKER_MAX = 1.5 * 1024 * 1024;
   const MAX_AVATAR = 300 * 1024;
   const MEDIA_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
   const AUDIO_RE = /^data:audio\/(mp4|webm|ogg|mpeg|aac|x-m4a);base64,/;
-  const $ = (id) => document.getElementById(id);
+  const VIDEO_RE = /^data:video\/(mp4|webm|quicktime);base64,/;
+  const POSTER_MAX = 200 * 1024; // Vorschaubild eines Videos
+  const $ =(id) => document.getElementById(id);
 
   // ================= Speicher =================
   let loggedOut = false; // Konto ist auf ein anderes Gerät umgezogen: nichts mehr speichern
@@ -219,6 +221,13 @@
       const wave = Array.isArray(m.wave) ? m.wave.slice(0, 64).map((v) => Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 100) / 100) : [];
       return { kind: 'audio', data: m.data, dur: dur > 0 && dur <= 3600 ? dur : 0, wave };
     }
+    if (m.kind === 'video') {
+      if (typeof m.data !== 'string' || m.data.length > MAX_MEDIA || !VIDEO_RE.test(m.data.slice(0, 40))) return null;
+      const dim = (v) => { const n = Math.round(Number(v)); return n > 0 && n < 10000 ? n : 360; };
+      const dur = Math.round(Number(m.dur) * 10) / 10;
+      const poster = typeof m.poster === 'string' && m.poster.length <= POSTER_MAX && /^data:image\/(jpeg|webp|png);base64,/.test(m.poster.slice(0, 30)) ? m.poster : null;
+      return { kind: 'video', data: m.data, w: dim(m.w), h: dim(m.h), dur: dur > 0 && dur <= 3600 ? dur : 0, poster };
+    }
     if (m.kind !== 'image' && m.kind !== 'gif') return null;
     if (typeof m.data !== 'string' || m.data.length > MAX_MEDIA || !MEDIA_RE.test(m.data.slice(0, 40))) return null;
     const dim = (v) => { const n = Math.round(Number(v)); return n > 0 && n < 20000 ? n : 300; };
@@ -226,7 +235,9 @@
   }
 
   // Was von einer Datei in der Nachricht gespeichert wird (die Daten selbst liegen in IndexedDB)
-  const mediaMeta = (m) => (m.kind === 'audio' ? { kind: 'audio', dur: m.dur || 0, wave: m.wave || [] } : { kind: m.kind, w: m.w, h: m.h });
+  const mediaMeta = (m) => (m.kind === 'audio' ? { kind: 'audio', dur: m.dur || 0, wave: m.wave || [] }
+    : m.kind === 'video' ? { kind: 'video', w: m.w, h: m.h, dur: m.dur || 0, poster: m.poster || null }
+    : { kind: m.kind, w: m.w, h: m.h });
 
   function sanitizeGroup(g) {
     if (!g || typeof g !== 'object' || typeof g.id !== 'string' || !/^[a-z0-9-]{8,40}$/.test(g.id)) return null;
@@ -534,7 +545,7 @@
       const data = await getMedia(chatId, msg.id);
       if (!data) return;
       // Ältere Versionen (bis v1.10) lehnen Dateien über ~7 MB ab -> warten, bis der Freund aktualisiert
-      if (data.length > OLD_MAX_MEDIA && ((contacts[code] && contacts[code].v) || 1) < PROTO) {
+      if (data.length > OLD_MAX_MEDIA && ((contacts[code] && contacts[code].v) || 1) < 3 && !(msg.media.kind === 'video' || msg.media.kind === 'audio')) {
         const k = code + '|' + msg.id;
         if (!oldVersionWarned.has(k)) { oldVersionWarned.add(k); toast(`${nameOf(code)} braucht ein WhatsUp-Update für große GIFs – wird danach zugestellt`); }
         return;
@@ -543,6 +554,7 @@
       const peerV = (contacts[code] && contacts[code].v) || 1;
       if (msg.media.kind === 'audio' && peerV < 4) wire.text = '🎤 Sprachnachricht – aktualisiere WhatsUp, um sie anzuhören.';
       else if (msg.media.kind === 'sticker' && peerV < 5) wire.text = '🩷 Sticker – aktualisiere WhatsUp, um ihn zu sehen.';
+      else if (msg.media.kind === 'video' && peerV < 6) wire.text = '🎥 Video – aktualisiere WhatsUp, um es anzusehen.';
       else wire.media = { ...mediaMeta(msg.media), data };
     }
     if (chatId.startsWith('g:')) { wire.type = 'gmsg'; wire.gid = chatId.slice(2); } else wire.type = 'msg';
@@ -613,7 +625,7 @@
 
     stats.sent++;
     if (chatId.startsWith('g:')) stats.groupSent++;
-    if (media) { if (media.kind === 'audio') stats.voices = (stats.voices || 0) + 1; else if (media.kind === 'gif') stats.gifs++; else stats.images++; }
+    if (media) { if (media.kind === 'audio') stats.voices = (stats.voices || 0) + 1; else if (media.kind === 'video') stats.videos = (stats.videos || 0) + 1; else if (media.kind === 'gif') stats.gifs++; else stats.images++; }
     stats.emojis += emojiCount(text);
     const h = new Date().getHours();
     if (h < 4) stats.night++;
@@ -1254,7 +1266,7 @@
   const fmtDay = (ts) => new Date(ts).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   const durText = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const preview = (m) => (m.deleted ? '🚫 Diese Nachricht wurde gelöscht' : m.media
-    ? (m.media.kind === 'sticker' ? '🩷 Sticker' : m.media.kind === 'audio' ? '🎤 Sprachnachricht (' + durText(m.media.dur) + ')' : m.media.kind === 'gif' ? '🎞️ GIF' : '📷 Bild') + (m.text ? ' ' + m.text : '')
+    ? (m.media.kind === 'sticker' ? '🩷 Sticker' : m.media.kind === 'audio' ? '🎤 Sprachnachricht (' + durText(m.media.dur) + ')' : m.media.kind === 'video' ? '🎥 Video (' + durText(m.media.dur) + ')' : m.media.kind === 'gif' ? '🎞️ GIF' : '📷 Bild') + (m.text ? ' ' + m.text : '')
     : m.text);
 
   function el(tag, cls, text) {
@@ -1484,6 +1496,7 @@
       if (m.deleted) div.appendChild(el('div', 'text', mine ? '🚫 Du hast diese Nachricht gelöscht' : '🚫 Diese Nachricht wurde gelöscht'));
       else if (isSticker) div.appendChild(stickers.view(chatId, m));
       else if (isVoice) div.appendChild(voice.el(chatId, m));
+      else if (m.media && m.media.kind === 'video') div.appendChild(video.el(chatId, m));
       else if (m.media) div.appendChild(mediaEl(chatId, m));
       if (m.text) div.appendChild(el('div', 'text', m.text));
       let tick = '';
@@ -1536,7 +1549,7 @@
 
   // ================= Navigation =================
   function openChat(chatId) {
-    if (activeChat !== chatId) { voice.stop(false); voice.stopPlayback(); clearReply(); closeMsgMenu(); }
+    if (activeChat !== chatId) { voice.stop(false); voice.stopPlayback(); clearReply(); closeMsgMenu(); video.close(); video.closePlayer(); }
     activeChat = chatId;
     setTimeout(() => voice.syncComposer(), 0);
     delete unread[chatId];
@@ -1552,7 +1565,7 @@
     voice.stop(false);
     voice.stopPlayback();
     activeChat = null;
-    clearReply(); closeMsgMenu();
+    clearReply(); closeMsgMenu(); video.close(); video.closePlayer();
     closeModal();
     show('viewList');
     render();
@@ -2066,6 +2079,8 @@
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if ($('msgMenuBack')) closeMsgMenu();
+    else if (video.open()) video.close();
+    else if (video.playerOpen()) video.closePlayer();
     else if (!$('stkEditor').classList.contains('hidden')) $('stkCancel').click();
     else if (!$('stCompose').classList.contains('hidden')) $('stComposeClose').click();
     else if (!$('viewer').classList.contains('hidden')) $('viewer').classList.add('hidden');
@@ -2641,6 +2656,277 @@
     return { el: el_, stop, stopPlayback, recording: () => !!rec, syncComposer };
   })();
 
+  // ================= Videos aufnehmen und abspielen =================
+  // Aufgenommen wird nicht direkt die Kamera, sondern eine Zeichenfläche, auf die das Kamerabild gemalt wird.
+  // So kann man WÄHREND der Aufnahme die Kamera drehen: Es wechselt nur die Quelle, die Aufnahme läuft weiter.
+  const video = (() => {
+    const MAX_S = 60;                 // höchstens 1 Minute
+    const LONG = 960;                 // längere Bildseite in Pixeln
+    const isMobile = () => window.matchMedia('(pointer: coarse)').matches;
+    const ov = $('vidRec'), cv = $('vidCanvas'), src = $('vidSrc'), out = $('vidPreview');
+    let st = null; // { chatId, audio, cam, facing, deviceId, rec, chunks, startT, timer, raf, poster, result }
+
+    const pickType = () => ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
+      .find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    const fmt = (s) => { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+    const videoInputs = async () => { try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput'); } catch { return []; } };
+
+    async function getCam(facing, deviceId) {
+      const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+      const tries = deviceId ? [{ deviceId: { exact: deviceId }, ...size }]
+        : isMobile() ? [{ facingMode: { exact: facing }, ...size }, { facingMode: facing }] : [{ ...size }, true];
+      let err;
+      for (const v of tries) {
+        try { return await navigator.mediaDevices.getUserMedia({ video: v }); } catch (e) { err = e; }
+      }
+      throw err;
+    }
+    const camError = (e) => toast(e && e.name === 'NotAllowedError' ? '⚠️ Kein Zugriff auf die Kamera. Bitte in den Einstellungen erlauben.' : '⚠️ Keine Kamera gefunden.');
+
+    // Kamerabild „cover“ in die Zeichenfläche malen (andere Kamera kann ein anderes Format haben)
+    function drawLoop() {
+      if (!st) return;
+      const vw = src.videoWidth, vh = src.videoHeight;
+      if (vw && vh && src.readyState >= 2) {
+        const g = cv.getContext('2d');
+        const s = Math.max(cv.width / vw, cv.height / vh);
+        const dw = vw * s, dh = vh * s;
+        g.drawImage(src, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+      }
+      st.raf = requestAnimationFrame(drawLoop);
+    }
+    // Vorschau spiegeln wie ein Spiegel, wenn die Frontkamera läuft (das Video selbst bleibt richtig herum)
+    const mirror = () => cv.classList.toggle('mirror', !!st && st.facing === 'user');
+
+    async function useCam(stream) {
+      if (st.cam) st.cam.getTracks().forEach((t) => t.stop());
+      st.cam = stream;
+      src.srcObject = stream;
+      await src.play().catch(() => {});
+      if (!src.videoWidth) await new Promise((r) => { src.onloadedmetadata = r; setTimeout(r, 1500); });
+      const t = stream.getVideoTracks()[0];
+      st.deviceId = t && t.getSettings ? t.getSettings().deviceId : null;
+      mirror();
+    }
+
+    async function open() {
+      if (st || !activeChat) return;
+      if (!navigator.mediaDevices || !window.MediaRecorder) { toast('⚠️ Videos aufnehmen wird hier nicht unterstützt.'); return; }
+      if (calls.active()) { toast('Während eines Anrufs nicht möglich'); return; }
+      if (voice.recording()) return;
+      hideEmoji();
+      st = { chatId: activeChat, facing: 'user', chunks: [] };
+      ov.classList.remove('hidden');
+      ov.classList.add('loading');
+      setMode('ready');
+      try {
+        const cam = await getCam('user');
+        if (!st) { cam.getTracks().forEach((t) => t.stop()); return; }
+        await useCam(cam);
+      } catch (e) { camError(e); close(); return; }
+      try { st.audio = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+      catch { toast('🔇 Kein Mikrofon – Video wird ohne Ton aufgenommen'); }
+      if (!st) return;
+      // Format der Zeichenfläche: wie die erste Kamera, längere Seite höchstens LONG Pixel
+      const vw = src.videoWidth || 1280, vh = src.videoHeight || 720;
+      const k = Math.min(1, LONG / Math.max(vw, vh));
+      cv.width = Math.round(vw * k / 2) * 2;
+      cv.height = Math.round(vh * k / 2) * 2;
+      ov.classList.remove('loading');
+      drawLoop();
+      const n = (await videoInputs()).length;
+      $('vidFlip').classList.toggle('hidden', !(n > 1 || (isMobile() && n > 0)));
+    }
+
+    // Kamera drehen – geht auch mitten in der Aufnahme
+    async function flip() {
+      if (!st || !st.cam || st.flipping) return;
+      st.flipping = true;
+      const s = st;
+      try {
+        let next;
+        if (isMobile()) {
+          s.facing = s.facing === 'user' ? 'environment' : 'user';
+          s.cam.getTracks().forEach((t) => t.stop()); // Handys erlauben oft nur eine Kamera gleichzeitig
+          next = await getCam(s.facing);
+        } else {
+          const inputs = await videoInputs();
+          if (inputs.length < 2) { toast('Keine zweite Kamera gefunden'); return; }
+          const i = inputs.findIndex((d) => d.deviceId === s.deviceId);
+          const dev = inputs[(i + 1) % inputs.length];
+          s.facing = /back|rear|rück|environment/i.test(dev.label) ? 'environment' : 'user';
+          next = await getCam(s.facing, dev.deviceId);
+        }
+        if (st !== s) { next.getTracks().forEach((t) => t.stop()); return; }
+        await useCam(next);
+      } catch (e) { camError(e); }
+      finally { s.flipping = false; }
+    }
+
+    function start() {
+      if (!st || st.rec || !st.cam) return;
+      const canvasStream = cv.captureStream ? cv.captureStream(30) : null;
+      // Ohne captureStream (sehr alte Browser): direkt die Kamera aufnehmen, dann kein Drehen während der Aufnahme
+      const vtracks = canvasStream ? canvasStream.getVideoTracks() : st.cam.getVideoTracks();
+      st.direct = !canvasStream;
+      const stream = new MediaStream([...vtracks, ...(st.audio ? st.audio.getAudioTracks() : [])]);
+      const type = pickType();
+      const opts = { videoBitsPerSecond: 1200000, audioBitsPerSecond: 64000, ...(type ? { mimeType: type } : {}) };
+      try { st.rec = new MediaRecorder(stream, opts); } catch { st.rec = new MediaRecorder(stream); }
+      st.chunks = [];
+      st.rec.ondataavailable = (e) => { if (e.data && e.data.size) st.chunks.push(e.data); };
+      st.rec.onstop = finish;
+      st.rec.start(500);
+      st.startT = Date.now();
+      // Vorschaubild für die Chat-Blase kurz nach dem Start
+      setTimeout(() => { if (st && !st.poster) st.poster = posterFrom(cv); }, 400);
+      $('vidTime').textContent = '0:00';
+      st.timer = setInterval(() => {
+        const s = (Date.now() - st.startT) / 1000;
+        $('vidTime').textContent = fmt(s) + ' / ' + fmt(MAX_S);
+        $('vidProg').style.width = Math.min(100, s / MAX_S * 100) + '%';
+        if (s >= MAX_S) stop();
+      }, 200);
+      setMode('rec');
+      if (st.direct) $('vidFlip').classList.add('hidden');
+    }
+    function stop() { if (st && st.rec && st.rec.state !== 'inactive') st.rec.stop(); }
+
+    function posterFrom(source) {
+      try {
+        const w = source.width || source.videoWidth, h = source.height || source.videoHeight;
+        const k = Math.min(1, 360 / Math.max(w, h));
+        const c = document.createElement('canvas');
+        c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+        const d = c.toDataURL('image/jpeg', 0.7);
+        return d.length <= POSTER_MAX ? d : null;
+      } catch { return null; }
+    }
+
+    async function finish() {
+      if (!st) return;
+      clearInterval(st.timer);
+      const dur = (Date.now() - st.startT) / 1000;
+      const type = ((st.rec && st.rec.mimeType) || (st.chunks[0] && st.chunks[0].type) || 'video/webm').split(';')[0];
+      st.rec = null;
+      if (dur < 1) { toast('Zu kurz – halte die Aufnahme etwas länger'); setMode('ready'); return; }
+      const blob = new Blob(st.chunks, { type });
+      st.result = { blob, type, dur: Math.round(dur * 10) / 10, w: cv.width, h: cv.height, poster: st.poster || posterFrom(cv) };
+      // Kamera aus, Ergebnis zeigen
+      cancelAnimationFrame(st.raf);
+      if (st.cam) st.cam.getTracks().forEach((t) => t.stop());
+      if (st.audio) st.audio.getTracks().forEach((t) => t.stop());
+      st.cam = st.audio = null;
+      out.src = URL.createObjectURL(blob);
+      out.play().catch(() => {});
+      setMode('done');
+    }
+
+    async function send() {
+      if (!st || !st.result) return;
+      const { blob, type, dur, w, h, poster } = st.result;
+      const chatId = st.chatId;
+      $('vidSend').disabled = true;
+      try {
+        const data = await readAsDataURL(new Blob([blob], { type }));
+        if (data.length > MAX_MEDIA) { toast(`⚠️ Das Video ist zu groß (max. ${MAX_MB} MB).`); $('vidSend').disabled = false; return; }
+        close();
+        await sendMessage(chatId, '', { kind: 'video', data, w, h, dur, poster });
+      } catch (e) { console.error(e); toast('⚠️ Video konnte nicht gesendet werden.'); $('vidSend').disabled = false; }
+    }
+
+    // Nochmal: Ergebnis verwerfen und Kamera wieder an
+    async function retake() {
+      if (!st) return;
+      close();
+      await open();
+    }
+
+    function close() {
+      if (st) {
+        const s = st; st = null;
+        clearInterval(s.timer);
+        cancelAnimationFrame(s.raf);
+        if (s.rec && s.rec.state !== 'inactive') { s.rec.onstop = null; s.rec.stop(); }
+        if (s.cam) s.cam.getTracks().forEach((t) => t.stop());
+        if (s.audio) s.audio.getTracks().forEach((t) => t.stop());
+      }
+      src.srcObject = null;
+      if (out.src) { URL.revokeObjectURL(out.src); out.removeAttribute('src'); out.load(); }
+      $('vidSend').disabled = false;
+      ov.classList.add('hidden');
+    }
+
+    function setMode(mode) {
+      ov.dataset.mode = mode; // ready | rec | done
+      $('vidProg').style.width = '0%';
+      if (mode !== 'rec') $('vidTime').textContent = mode === 'done' && st && st.result ? fmt(st.result.dur) : 'max. ' + fmt(MAX_S);
+    }
+
+    $('videoBtn').onclick = open;
+    $('vidClose').onclick = close;
+    $('vidFlip').onclick = flip;
+    $('vidShutter').onclick = () => { if (st && st.rec) stop(); else start(); };
+    $('vidRetake').onclick = retake;
+    $('vidSend').onclick = send;
+
+    // ---------- In der Chat-Blase: Vorschaubild mit ▶ und Dauer ----------
+    function el_(chatId, m) {
+      const box = el('div', 'vid');
+      const w = Math.min(220, m.media.w || 220);
+      box.style.width = w + 'px';
+      box.style.aspectRatio = `${m.media.w || 16} / ${m.media.h || 9}`;
+      if (m.media.poster) { const img = document.createElement('img'); img.src = m.media.poster; img.alt = 'Video'; box.appendChild(img); }
+      const play = el('span', 'vid-play');
+      play.innerHTML = '<svg viewBox="0 0 24 24"><use href="#i-play"/></svg>';
+      box.append(play, el('span', 'vid-dur', '🎥 ' + fmt(m.media.dur || 0)));
+      box.onclick = () => openPlayer(chatId, m);
+      return box;
+    }
+
+    function dataUrlToBlob(d) {
+      const i = d.indexOf(',');
+      const type = (/^data:([^;,]+)/.exec(d) || [])[1] || 'video/mp4';
+      const bin = atob(d.slice(i + 1));
+      const bytes = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+      return new Blob([bytes], { type });
+    }
+
+    // Vollbild-Player
+    let playerUrl = null;
+    async function openPlayer(chatId, m) {
+      const data = await getMedia(chatId, m.id);
+      if (!data) { toast('Video nicht gefunden'); return; }
+      const blob = dataUrlToBlob(data); // fetch() auf data:-URLs verbietet die Content-Security-Policy
+      closePlayer();
+      playerUrl = URL.createObjectURL(blob);
+      const v = $('vidViewerVideo');
+      v.src = playerUrl;
+      const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('quicktime') ? 'mov' : 'webm';
+      $('vidViewerSave').href = playerUrl;
+      $('vidViewerSave').download = `whatsup-${new Date(m.ts).toISOString().slice(0, 10)}-${m.id.slice(0, 6)}.${ext}`;
+      $('vidViewer').classList.remove('hidden');
+      v.play().catch(() => {});
+      v.onerror = () => toast('⚠️ Dieses Video kann hier nicht abgespielt werden.');
+    }
+    function closePlayer() {
+      const v = $('vidViewerVideo');
+      v.pause();
+      if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl = null; }
+      v.removeAttribute('src'); v.load();
+      $('vidViewer').classList.add('hidden');
+    }
+    $('vidViewerClose').onclick = closePlayer;
+    $('vidViewer').onclick = (e) => { if (e.target.id === 'vidViewer') closePlayer(); };
+
+    return {
+      el: el_, close, closePlayer,
+      open: () => !!st, playerOpen: () => !$('vidViewer').classList.contains('hidden'),
+    };
+  })();
+
   // ================= Anrufe (Audio & Video, direkt über WebRTC, Ende-zu-Ende verschlüsselt) =================
   // Signalisierung über PeerJS (peer.call), Steuerbefehle (Auflegen, Ablehnen, Kamera aus) über die Chat-Verbindung.
   const calls = (() => {
@@ -3143,7 +3429,7 @@
           const ts = clampTs(data.ts);
           if (Date.now() - ts >= TTL) return;
           const media = validMedia(data.media);
-          if (media && (media.kind === 'audio' || media.kind === 'sticker')) return; // Status nur mit Bildern
+          if (media && (media.kind === 'audio' || media.kind === 'sticker' || media.kind === 'video')) return; // Status nur mit Bildern
           if (!media) return;
           const list = (all[code] = all[code] || []);
           if (list.some((s) => s.id === id)) return;
