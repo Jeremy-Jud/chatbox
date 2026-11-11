@@ -58,6 +58,12 @@ export default {
     if (parts[1] === 'vapid') return json({ key: clean(env.VAPID_PUBLIC) || null });
     // Wie viele Personen auf der Welt besitzen welchen Erfolg? (öffentlich, nur Zahlen)
     if (parts[1] === 'achstats') return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/counts');
+    // Welche Erfolge hat dieser Code? (für das Profil aus UpReels, nur die IDs)
+    if (parts[1] === 'achuser') {
+      const c = String(parts[2] || '').toUpperCase();
+      if (!CODE_RE.test(c)) return fail(400, 'bad code');
+      return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/user/' + c);
+    }
     // UpReels: Videos gehen an den Speicher des jeweiligen Reels, alles andere an den zentralen Index
     if (parts[1] === 'reels') {
       if (parts[2] === 'video' && /^[a-z0-9]{16,40}$/.test(parts[3] || '') && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -299,6 +305,12 @@ export class AchStats {
       for (const id of ach) if (ACH_ID_RE.test(id)) this.sql.exec('INSERT OR IGNORE INTO owned (code, ach) VALUES (?, ?)', code, id);
       this.cache = null;
       return json({ ok: true });
+    }
+    if (path.startsWith('/user/')) {
+      const c = path.slice(6);
+      if (!CODE_RE.test(c)) return fail(400, 'bad code');
+      const ach = this.sql.exec('SELECT ach FROM owned WHERE code = ? ORDER BY ach', c).toArray().map((r) => r.ach);
+      return new Response(JSON.stringify({ ach }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS } });
     }
     if (path === '/counts') {
       if (!this.cache || Date.now() - this.cache.at > 60000) {

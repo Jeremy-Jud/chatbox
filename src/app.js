@@ -1653,6 +1653,58 @@
     return row;
   }
 
+  // Profil eines beliebigen Nutzers (z. B. aus UpReels) – aufgebaut wie die Chat-Info
+  function openProfile(code, name) {
+    const c = contacts[code];
+    const mine = code === me.code;
+    const shownName = mine ? me.name : (c && !/^Nutzer /.test(c.name) ? c.name : name) || code;
+    reels.pauseAll();
+    openModal((box) => {
+      const head = el('div', 'info-head');
+      const av = mine ? me.avatar : c && c.avatar;
+      const fr = mine ? me.frame : c && c.frame;
+      head.appendChild(avatarEl(shownName, av, code, 'xl', c && c.friend ? isOnline(code) : null, fr));
+      head.appendChild(el('h3', '', mine ? `${shownName} (Du)` : shownName));
+      const banner = mine ? validBanner(me.banner) : c && c.banner;
+      const status = mine ? me.status : c && c.status;
+      if (banner) head.appendChild(bannerEl(status || shownName, banner));
+      else if (status) head.appendChild(el('div', 'muted', status));
+      head.appendChild(el('div', 'muted', `Code: ${code}` + (c && c.friend ? ` · ${isOnline(code) ? 'online' : 'offline'}` : '')));
+      const pill = el('div', 'pill hidden');
+      head.appendChild(pill);
+      box.appendChild(head);
+      // Erfolge: eigene, von Freunden direkt, sonst vom Server
+      const achWrap = el('div');
+      box.appendChild(achWrap);
+      const showAch = (ids) => {
+        ids = (ids || []).filter((id) => ACH.some((a) => a.id === id));
+        pill.textContent = `🏆 ${ids.length} ${ids.length === 1 ? "Erfolg" : "Erfolge"}`;
+        pill.classList.toggle('hidden', !ids.length);
+        achWrap.replaceChildren(ids.length ? rareAchievementsEl(ids) : el('div', 'muted center', 'Noch keine Erfolge bekannt.'));
+      };
+      if (mine) showAch(Object.keys(unlocked));
+      else if (c && c.ach && c.ach.length) showAch(c.ach);
+      else {
+        achWrap.appendChild(el('div', 'muted center', 'Erfolge werden geladen…'));
+        fetch(`${relay.url()}/v1/achuser/${code}`).then((r) => r.json()).then((d) => showAch(d.ach)).catch(() => showAch([]));
+      }
+      box.appendChild(reels.profileSection(code, shownName));
+      const btns = [];
+      if (!mine && c && c.friend) btns.push(['Chat öffnen', 'ghost', () => { closeModal(); openChat('u:' + code); }]);
+      else if (!mine && !blocked.includes(code)) btns.push(['Als Freund hinzufügen', 'ghost', () => {
+        closeModal();
+        $('addInput').value = code;
+        $('addForm').requestSubmit();
+        toast(`🤝 Anfrage an ${shownName} gesendet`);
+      }]);
+      btns.push(['Schließen', 'primary', closeModal]);
+      box.appendChild(buttons(...btns));
+    });
+    // Nach dem Schließen läuft das Reel weiter
+    const obs = new MutationObserver(() => { if ($('modal').classList.contains('hidden')) { obs.disconnect(); if (view === 'viewReels') reels.playVisible(); } });
+    obs.observe($('modal'), { attributes: true, attributeFilter: ['class'] });
+  }
+
   function openInfo() {
     if (!activeChat) return;
     const code = activeChat.slice(2);
@@ -1665,7 +1717,7 @@
         if (c.banner) head.appendChild(bannerEl(c.status || c.name, c.banner));
         else if (c.status) head.appendChild(el('div', 'muted', c.status));
         head.appendChild(el('div', 'muted', `Code: ${code} · ${isOnline(code) ? 'online' : 'offline'}`));
-        if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} Erfolge`));
+        if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} ${c.badges === 1 ? "Erfolg" : "Erfolge"}`));
         box.appendChild(head);
         if (c.ach && c.ach.length) box.appendChild(rareAchievementsEl(c.ach));
         box.appendChild(reels.profileSection(code, c.name));
@@ -3371,7 +3423,11 @@
     function reelEl(r) {
       const item = el('div', 'reel');
       item.dataset.id = r.id;
-      if (r.w > r.h) item.classList.add('landscape'); // Querformat ganz zeigen, Hochkant füllt den Bereich
+      // Querformat ganz zeigen; die Ränder füllt eine unscharfe, dunkle Version des Vorschaubilds. Hochkant füllt den Bereich.
+      if (r.w > r.h) {
+        item.classList.add('landscape');
+        if (r.poster) item.style.setProperty('--poster', `url("${r.poster}")`);
+      }
       const v = document.createElement('video');
       v.className = 'reel-video';
       v.playsInline = true; v.loop = true; v.preload = 'none';
@@ -3408,7 +3464,7 @@
       who.type = 'button';
       const c = contacts[r.author];
       who.append(avatarEl(r.name, c && c.avatar, r.author, 'sm', null, c && c.frame), el('span', 'reel-name', r.author === me.code ? 'Du' : r.name), el('span', 'reel-ago', '· ' + ago(r.ts)));
-      who.onclick = () => openUser(r.author, r.name);
+      who.onclick = () => openProfile(r.author, r.name);
       info.appendChild(who);
       if (r.caption) info.appendChild(el('div', 'reel-caption', r.caption));
       if (r.music) {
@@ -3622,7 +3678,7 @@
           b.onclick = fn;
           box.appendChild(b);
         };
-        if (r.author !== me.code) act('Profil ansehen', '👤', () => { closeSheet(); openUser(r.author, r.name); });
+        if (r.author !== me.code) act('Profil ansehen', '👤', () => { closeSheet(); openProfile(r.author, r.name); });
         if (r.author !== me.code) act('Melden', '🚩', () => { closeSheet(); report(r, item); }, 'danger');
         if (r.author === me.code || admin) act(r.author === me.code ? 'Löschen' : 'Löschen (Admin)', '🗑️', async () => {
           if (!confirm('Dieses UpReel für alle löschen?')) return;
