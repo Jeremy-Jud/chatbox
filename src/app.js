@@ -1843,6 +1843,8 @@
     const box = $('modalBox');
     box.replaceChildren();
     delete box.dataset.owner;
+    box.classList.remove('modal-big'); $('modal').classList.remove('modal-big'); // nur die Gruppen-Info ist groß
+    box.scrollTop = 0;
     build(box);
     $('modal').classList.remove('hidden');
   }
@@ -2053,11 +2055,11 @@
       addBtn.onclick = () => { saveIfDirty(); openAddMembers(g); };
       memHead.appendChild(addBtn);
       box.appendChild(memHead);
-      const ul = el('ul', 'members');
+      const ul = el('ul', 'members members-full'); // alle Mitglieder untereinander, die ganze Seite scrollt
       [me.code, ...others(g)].forEach((c) => {
         const li = el('li', 'member-row');
         const cc = contacts[c] || {};
-        li.appendChild(avatarEl(nameOf(c), c === me.code ? me.avatar : cc.avatar, c, 'sm', c === me.code ? null : isOnline(c), c === me.code ? me.frame : cc.frame));
+        li.appendChild(avatarEl(nameOf(c), c === me.code ? me.avatar : cc.avatar, c, '', c === me.code ? null : isOnline(c), c === me.code ? me.frame : cc.frame));
         li.appendChild(el('span', 'member-name', (c === me.code ? me.name : nameOf(c)) + (c === me.code ? ' (du)' : '') + (c === g.owner ? ' 👑' : '')));
         if (c !== me.code && !isFriend(c)) li.appendChild(el('span', 'member-tag', 'kein Freund'));
         li.appendChild(el('span', 'member-go', '›'));
@@ -2067,9 +2069,15 @@
         ul.appendChild(li);
       });
       box.appendChild(ul);
-      box.appendChild(clearRow(activeChat));
+      // Erst nach allen Mitgliedern, klein: Chatverlauf leeren und Gruppe verlassen
+      const extra = el('div', 'group-extra');
+      extra.appendChild(clearRow(activeChat));
+      const leave = el('button', 'group-leave', '🚪 Gruppe verlassen');
+      leave.type = 'button';
+      leave.onclick = () => { if (confirm(`Gruppe „${g.name}“ verlassen? Der Verlauf wird gelöscht.`)) leaveGroup(g); };
+      extra.appendChild(leave);
+      box.appendChild(extra);
       const actions = buttons(
-        ['Verlassen', 'danger', () => { if (confirm(`Gruppe „${g.name}“ verlassen? Der Verlauf wird gelöscht.`)) leaveGroup(g); }],
         ['Schließen', 'primary', () => {
           if (!nameIn.value.trim()) { nameIn.focus(); return; }
           updateGroup(g, { name: nameIn.value, desc: descIn.value, avatar: draftAv });
@@ -2085,7 +2093,11 @@
       addBtn.classList.toggle('muted-link', !candidates.length);
       nameIn.addEventListener('input', () => { refresh(); if (!draftAv) drawAv(); });
       descIn.addEventListener('input', refresh);
+      actions.classList.add('sticky-actions');
       box.appendChild(actions);
+      // Groß: Gruppen-Info füllt das Fenster
+      box.classList.add('modal-big');
+      $('modal').classList.add('modal-big');
     });
   }
 

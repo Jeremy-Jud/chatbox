@@ -1004,3 +1004,20 @@ button.sender:hover { background: var(--soft); }
 .member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .member-tag { font-size: 10.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 1px 6px; white-space: nowrap; }
 .member-go { color: var(--muted); font-size: 18px; padding: 0 2px; }
+
+/* ================= Gruppen-Info groß (ganzes Fenster, nur die Seite scrollt) ================= */
+.modal.modal-big { place-items: stretch; padding: 10px; }
+.modal-box.modal-big { height: 100%; max-height: 100%; box-sizing: border-box; gap: 14px; }
+.members.members-full { max-height: none; overflow: visible; }
+.members-full .member-row { padding: 8px 6px; gap: 12px; border-radius: 12px; }
+.members-full .member-row .avatar { width: 42px; height: 42px; font-size: 15px; }
+.members-full .member-name { font-size: 15px; }
+.modal-big .members-head .label { font-size: 13px; font-weight: 600; color: var(--fg); }
+/* Unten, klein: Chatverlauf leeren, Gruppe verlassen */
+.group-extra { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }
+.group-extra .clear-row { font-size: 12.5px; color: var(--muted); padding: 8px 4px; border: 0; }
+.group-extra .clear-row .danger-link { font-size: 12.5px; }
+.group-leave { color: var(--danger); font-size: 12.5px; text-align: left; padding: 8px 4px; cursor: pointer; }
+.group-leave:hover { text-decoration: underline; }
+/* Speichern/Schließen bleibt unten sichtbar */
+.modal-box.modal-big .sticky-actions { position: sticky; bottom: -18px; margin: auto -18px -18px; padding: 12px 18px; background: var(--bg); border-top: 1px solid var(--line); z-index: 2; }
