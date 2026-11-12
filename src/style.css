@@ -906,3 +906,10 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .msg.me .tick.read { color: #7df9ff; text-shadow: 0 0 1px rgba(0, 0, 0, .25); }
 .msg.me.big .meta, .msg.me.has-media .meta, .msg.me.sticker .meta, .msg.me.deleted .meta { color: var(--muted); }
 .msg.me.big .tick.read, .msg.me.has-media .tick.read, .msg.me.sticker .tick.read { color: var(--accent); text-shadow: none; }
+
+/* Gruppenchat: Profilbild + Name über den Nachrichten, antippen öffnet das Profil */
+button.sender { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin: 10px 0 2px 2px; padding: 2px 8px 2px 2px; border-radius: 14px; cursor: pointer; text-align: left; }
+button.sender:hover { background: var(--soft); }
+.sender .avatar.sender-av { width: 22px; height: 22px; font-size: 9px; flex-shrink: 0; }
+.sender .avatar.sender-av .frame { display: none; } /* Rahmen ist bei der kleinen Größe zu unruhig */
+.sender-name { font-size: 11.5px; font-weight: 600; }

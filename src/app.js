@@ -1571,8 +1571,16 @@
       if (m.sys) { box.appendChild(el('div', 'sys', m.text)); lastFrom = null; return; }
       const mine = m.from === me.code;
       if (isGroup && !mine && m.from !== lastFrom) {
-        const s = el('div', 'sender', nameOf(m.from));
-        s.style.color = colorFor(m.from);
+        // Profilbild + Name: antippen öffnet das Profil (Code, seltenste Erfolge, UpReels …)
+        const c = contacts[m.from];
+        const s = el('button', 'sender');
+        s.type = 'button';
+        s.title = `Profil von ${nameOf(m.from)} ansehen`;
+        const name = el('span', 'sender-name', nameOf(m.from));
+        name.style.color = colorFor(m.from);
+        s.append(avatarEl(nameOf(m.from), c && c.avatar, m.from, 'sender-av', null, c && c.frame), name);
+        const from = m.from;
+        s.onclick = () => openProfile(from, nameOf(from));
         box.appendChild(s);
       }
       lastFrom = m.from;
