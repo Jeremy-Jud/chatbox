@@ -425,8 +425,26 @@
         if (m && m.from === me.code && m.to && m.to.includes(code) && !m.deliveredTo.includes(code)) {
           m.deliveredTo.push(code);
           if (!m.sentTo.includes(code)) m.sentTo.push(code);
+          (m.dAt = m.dAt || {})[code] = Date.now(); // wann zugestellt (für „Info“)
           saveChat(chatId); scheduleRender();
         }
+        break;
+      }
+      case 'read': { // Lesebestätigung: code hat diese Nachrichten gesehen
+        const chatId = data.gid ? 'g:' + data.gid : 'u:' + code;
+        if (data.gid && !(groups[data.gid] && groups[data.gid].members.includes(code))) break;
+        const ids = Array.isArray(data.ids) ? data.ids.slice(0, 500).map(String) : [];
+        let changed = false;
+        for (const m of chats[chatId] || []) {
+          if (m.from !== me.code || !m.to || !m.to.includes(code) || !ids.includes(m.id)) continue;
+          m.readBy = m.readBy || {};
+          if (m.readBy[code]) continue;
+          m.readBy[code] = clampTs(data.ts);
+          if (!m.deliveredTo.includes(code)) { m.deliveredTo.push(code); (m.dAt = m.dAt || {})[code] = m.readBy[code]; }
+          if (!m.sentTo.includes(code)) m.sentTo.push(code);
+          changed = true;
+        }
+        if (changed) { saveChat(chatId); scheduleRender(); }
         break;
       }
       case 'group': {
@@ -898,6 +916,7 @@
         bar.appendChild(plus);
         menu.appendChild(bar);
         menu.appendChild(act('Antworten', '↩️', () => { closeMsgMenu(); startReply(chatId, m); }));
+        if (m.from === me.code && m.to && m.to.length) menu.appendChild(act('Info', 'ℹ️', () => { closeMsgMenu(); openMsgInfo(chatId, m); }));
         if (m.text) menu.appendChild(act('Kopieren', '📋', async () => {
           closeMsgMenu();
           try { await navigator.clipboard.writeText(m.text); toast('Text kopiert'); } catch { toast('Kopieren fehlgeschlagen'); }
@@ -1451,6 +1470,74 @@
     });
   }
 
+  // ---- Gelesen: Lesebestätigungen senden, wenn man den Chat wirklich sieht ----
+  let readTimer = null;
+  function scheduleReadReceipts() {
+    clearTimeout(readTimer);
+    readTimer = setTimeout(sendReadReceipts, 400);
+  }
+  function sendReadReceipts() {
+    const chatId = activeChat;
+    if (!chatId || view !== 'viewChat' || document.hidden || !document.hasFocus()) return;
+    const bySender = {};
+    for (const m of chats[chatId] || []) {
+      if (m.sys || m.from === me.code || m.readSent) continue;
+      (bySender[m.from] = bySender[m.from] || []).push(m);
+    }
+    const gid = chatId.startsWith('g:') ? chatId.slice(2) : null;
+    let any = false;
+    for (const [from, list] of Object.entries(bySender)) {
+      const data = { type: 'read', ids: list.map((m) => m.id), ts: Date.now() };
+      if (gid) data.gid = gid;
+      sendData(from, data);
+      list.forEach((m) => { m.readSent = true; });
+      any = true;
+    }
+    if (any) saveChat(chatId);
+  }
+  window.addEventListener('focus', () => { if (view === 'viewChat') scheduleReadReceipts(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && view === 'viewChat') scheduleReadReceipts(); });
+
+  // „Info“ zu einer eigenen Nachricht: wer hat gelesen, wem zugestellt, was steht aus
+  function openMsgInfo(chatId, m) {
+    const when = (ts) => {
+      const d = new Date(ts), today = new Date();
+      return (d.toDateString() === today.toDateString() ? 'heute' : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })) + ', ' + fmtTime(ts);
+    };
+    const readBy = m.readBy || {}, dAt = m.dAt || {};
+    const read = m.to.filter((c) => readBy[c]).sort((a, b) => readBy[a] - readBy[b]);
+    const delivered = m.to.filter((c) => !readBy[c] && m.deliveredTo.includes(c));
+    const pending = m.to.filter((c) => !readBy[c] && !m.deliveredTo.includes(c));
+    openModal((box) => {
+      box.appendChild(el('h3', '', 'Nachrichteninfo'));
+      const quote = el('div', 'info-msg', snippet(preview(m), 120) || 'Nachricht');
+      quote.appendChild(el('div', 'muted', 'Gesendet ' + when(m.ts)));
+      box.appendChild(quote);
+      const section = (title, icon, codes, timeOf) => {
+        const sec = el('div', 'info-sec');
+        sec.appendChild(el('div', 'rare-ach-title', `${icon} ${title} · ${codes.length}`));
+        if (!codes.length) { sec.appendChild(el('div', 'muted info-none', '–')); return sec; }
+        const ul = el('ul', 'members info-list');
+        codes.forEach((c) => {
+          const ct = contacts[c];
+          const li = el('li');
+          li.appendChild(avatarEl(nameOf(c), ct && ct.avatar, c, '', null, ct && ct.frame));
+          const meta = el('div', 'fmeta');
+          meta.appendChild(el('div', 'fname', nameOf(c)));
+          if (timeOf) meta.appendChild(el('div', 'flast', timeOf(c)));
+          li.appendChild(meta);
+          ul.appendChild(li);
+        });
+        sec.appendChild(ul);
+        return sec;
+      };
+      box.appendChild(section('Gelesen', '✓✓', read, (c) => 'gelesen ' + when(readBy[c])));
+      box.appendChild(section('Zugestellt', '✓', delivered, (c) => (dAt[c] ? 'zugestellt ' + when(dAt[c]) : 'zugestellt')));
+      if (pending.length) box.appendChild(section('Noch nicht zugestellt', '🕓', pending, null));
+      box.appendChild(buttons(['Schließen', 'primary', closeModal]));
+    });
+  }
+
   function renderChat() {
     const chatId = activeChat;
     const isGroup = chatId.startsWith('g:');
@@ -1502,17 +1589,22 @@
       else if (m.media && m.media.kind === 'video') div.appendChild(video.el(chatId, m));
       else if (m.media) div.appendChild(mediaEl(chatId, m));
       if (m.text) div.appendChild(el('div', 'text', m.text));
-      let tick = '';
+      const meta = el('div', 'meta', fmtTime(m.ts));
       if (mine && m.to && m.to.length && !m.deleted) {
-        tick = m.deliveredTo.length >= m.to.length ? ' ✓✓' : m.deliveredTo.length || m.sentTo.length ? ' ✓' : ' 🕓';
+        const read = m.readBy ? m.to.filter((c) => m.readBy[c]).length : 0;
+        const tick = read >= m.to.length ? '✓✓' : m.deliveredTo.length >= m.to.length ? '✓✓' : m.deliveredTo.length || m.sentTo.length ? '✓' : '🕓';
+        const t = el('span', 'tick' + (read >= m.to.length ? ' read' : ''), ' ' + tick);
+        t.title = read >= m.to.length ? 'Gelesen' : m.deliveredTo.length >= m.to.length ? 'Zugestellt' : 'Gesendet';
+        meta.appendChild(t);
       }
-      div.appendChild(el('div', 'meta', fmtTime(m.ts) + tick));
+      div.appendChild(meta);
       if (m.reactions && !m.deleted) div.appendChild(reactionsEl(chatId, m));
       attachMsgMenu(div, chatId, m);
       box.appendChild(div);
     });
     if (atBottom || box.dataset.chat !== chatId) box.scrollTop = box.scrollHeight;
     box.dataset.chat = chatId;
+    scheduleReadReceipts();
   }
 
   function mediaEl(chatId, m) {
@@ -1870,7 +1962,69 @@
   let draftAvatar = null;
   let draftFrame = null;
   let draftBanner = null;
+  // ================= Admin: Nutzer von WhatsUp (nur für Admin-Codes sichtbar) =================
+  let adminData = null;
+  const agoText = (ts) => {
+    const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+    if (s < 3600) return `vor ${Math.max(1, Math.floor(s / 60))} Min.`;
+    if (s < 86400) return `vor ${Math.floor(s / 3600)} Std.`;
+    if (s < 86400 * 30) return `vor ${Math.floor(s / 86400)} ${Math.floor(s / 86400) === 1 ? 'Tag' : 'Tagen'}`;
+    return new Date(ts).toLocaleDateString('de-DE');
+  };
+  async function refreshAdmin() {
+    if (!relay.ready() || !(await relay.isAdmin())) { $('adminSection').classList.add('hidden'); return; }
+    $('adminSection').classList.remove('hidden');
+    $('adminCount').textContent = 'wird geladen…';
+    try {
+      adminData = await relay.adminUsers();
+      $('adminCount').textContent = `${adminData.count} · ${adminData.active24h} heute aktiv`;
+    } catch { $('adminCount').textContent = 'nicht erreichbar'; }
+  }
+  function openAdminUsers() {
+    openModal((box) => {
+      box.appendChild(el('h3', '', '👥 Nutzer von WhatsUp'));
+      const stats = el('div', 'admin-stats');
+      box.appendChild(stats);
+      box.appendChild(el('div', 'muted', 'Gezählt wird, wer WhatsUp ab Version 1.27 geöffnet hat (mit eingeschaltetem Briefkasten-Server).'));
+      const search = el('input', 'admin-search');
+      search.placeholder = 'Name oder Code suchen…'; search.autocomplete = 'off';
+      box.appendChild(search);
+      const ul = el('ul', 'members admin-list');
+      box.appendChild(ul);
+      const draw = () => {
+        const d = adminData;
+        if (!d) { ul.replaceChildren(el('li', 'muted', 'Wird geladen…')); return; }
+        stats.replaceChildren(...[[d.count, 'Nutzer'], [d.active24h, 'heute aktiv'], [d.active7d, 'in 7 Tagen']].map(([n, l]) => {
+          const t = el('div', 'admin-stat'); t.append(el('b', '', String(n)), el('span', 'muted', l)); return t;
+        }));
+        const q = search.value.trim().toLowerCase();
+        const list = d.users.filter((u) => !q || u.name.toLowerCase().includes(q) || u.code.toLowerCase().includes(q));
+        ul.replaceChildren();
+        if (!list.length) ul.appendChild(el('li', 'muted', q ? 'Niemand gefunden.' : 'Noch keine Nutzer gemeldet.'));
+        list.slice(0, 500).forEach((u) => {
+          const li = el('li');
+          const c = contacts[u.code];
+          li.appendChild(avatarEl(u.name, u.code === me.code ? me.avatar : c && c.avatar, u.code, '', null, u.code === me.code ? me.frame : c && c.frame));
+          const meta = el('div', 'fmeta');
+          const name = el('div', 'fname', u.name + (u.code === me.code ? ' (Du)' : ''));
+          meta.append(name, el('div', 'flast', `${u.code} · ${agoText(u.last)} · ${u.plat === 'web' ? '📱 Web' : '💻 Windows'}${u.ver ? ' · v' + u.ver : ''}`));
+          li.appendChild(meta);
+          li.title = `Seit ${new Date(u.first).toLocaleDateString('de-DE')} dabei`;
+          li.onclick = () => { closeModal(); openProfile(u.code, u.name); };
+          ul.appendChild(li);
+        });
+      };
+      search.oninput = draw;
+      draw();
+      // frisch laden
+      relay.adminUsers().then((d) => { adminData = d; $('adminCount').textContent = `${d.count} · ${d.active24h} heute aktiv`; draw(); }).catch(() => {});
+      box.appendChild(buttons(['Schließen', 'primary', closeModal]));
+    });
+  }
+  $('adminUsersBtn').onclick = openAdminUsers;
+
   function openSettings() {
+    refreshAdmin();
     draftAvatar = me.avatar || null;
     draftFrame = validFrame(me.frame);
     draftBanner = validBanner(me.banner);
@@ -5131,7 +5285,7 @@
   //  - Pro Nachricht: Einmal-Schlüssel (ECDH) -> HKDF -> AES-256-GCM, Absender signiert alles
   const relay = (() => {
     const DEFAULT_URL = 'https://whatsup-relay.whatsup-relay.workers.dev';
-    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss', 'hreq', 'mact']);
+    const RELAY_TYPES = new Set(['msg', 'gmsg', 'ack', 'group', 'gleave', 'hello', 'status', 'sdel', 'sreact', 'sseen', 'callmiss', 'hreq', 'mact', 'read']);
     // Push aufs Handy nur für echte Nachrichten und Reaktionen (Profil, Gruppen-Abgleich, Bestätigungen usw. still)
     const PUSH_TYPES = new Set(['msg', 'gmsg', 'sreact', 'callmiss']);
     const te = new TextEncoder(), td = new TextDecoder();
@@ -5360,6 +5514,27 @@
         achStatsCache = null; // gleich neu laden, damit die eigenen Erfolge mitgezählt sind
       } catch (e) { console.warn('Erfolge melden:', e); }
     }
+    // „Ich nutze WhatsUp“: Name, Version, Plattform – für die Nutzerliste des Admins. Einmal am Tag (oder bei neuem Namen).
+    async function reportSeen() {
+      if (!ready || !enabled()) return;
+      const plat = document.documentElement.classList.contains('is-web') ? 'web' : 'windows';
+      const ver = (typeof upd === 'object' && upd.version) || '';
+      const key = `${me.code}|${me.name}|${ver}|${new Date().toDateString()}`;
+      if (store.load('seenReported', '') === key) return;
+      try {
+        const ts = Date.now();
+        await post(`/v1/seen/${me.code}`, { name: me.name, ver, plat, ts, sig: await sign(`seen|${me.code}|${ts}|${me.name}`) });
+        store.save('seenReported', key);
+      } catch (e) { console.warn('Nutzer melden:', e); }
+    }
+    // Admin: Nutzerliste holen (Server prüft die Signatur und ob der Code Admin ist)
+    async function adminUsers() {
+      const ts = Date.now();
+      return post('/v1/admin/users', { code: me.code, ts, sig: await sign(`adminusers|${me.code}|${ts}`) });
+    }
+    async function isAdmin() {
+      try { return !!(await (await fetch(`${url()}/v1/isadmin/${me.code}`)).json()).admin; } catch { return false; }
+    }
     // Weltweite Zahlen: { counts: { id: Anzahl }, players }. Höchstens alle 5 Minuten neu laden.
     let achStatsCache = store.load('achStats', null);
     let achStatsLoading = null;
@@ -5401,6 +5576,7 @@
       setupPush();
       saveNames();
       reportAchievements();
+      setTimeout(reportSeen, 3000); // nach dem Start, wenn die Version bekannt ist
     }
 
     // Abholen: beim Start, jede Minute, beim Zurückkehren in die App und wenn das Netz wieder da ist
@@ -5410,7 +5586,7 @@
     window.addEventListener('online', () => poll());
 
     return {
-      start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus, reportAchievements, achStats,
+      start, poll, send, setupPush, pushTest, saveNames, renderRelayStatus, reportAchievements, achStats, reportSeen, adminUsers, isAdmin,
       newIdentity, rotationRequest, rotate, serverHasKey, enabled, url,
       canSend: (code) => ready && enabled() && known[code] !== false,
       ready: () => ready && enabled(),

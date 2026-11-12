@@ -879,3 +879,30 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .vidrec[data-src="photos"][data-mode="done"] .vid-photos { display: block; }
 .vidrec[data-src="photos"][data-mode="done"] .vid-canvas, .vidrec[data-src="photos"] .vid-preview { display: none !important; }
 .vid-photos .pc-count { right: 12px; top: 110px; }
+
+/* ================= Gelesen-Häkchen und Nachrichteninfo ================= */
+.msg .tick { white-space: nowrap; }
+.msg .tick.read { color: #8ff0ff; font-weight: 700; opacity: 1; }
+.msg.big .tick.read, .msg.has-media .tick.read, .msg.sticker .tick.read, .msg.deleted .tick.read { color: var(--accent); }
+.info-msg { background: var(--soft); border-radius: 12px; padding: 10px 12px; font-size: 13.5px; white-space: pre-wrap; word-wrap: break-word; }
+.info-msg .muted { margin-top: 4px; font-size: 11.5px; }
+.info-sec { display: flex; flex-direction: column; gap: 2px; }
+.info-list { max-height: 200px; }
+.info-list li { cursor: default; }
+.info-list .avatar { width: 32px; height: 32px; font-size: 12px; }
+.info-none { padding: 2px 4px 6px; }
+
+/* ================= Admin ================= */
+.admin-section { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+.admin-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.admin-stat { background: var(--soft); border-radius: 12px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.admin-stat b { font-size: 20px; }
+.admin-stat span { font-size: 11px; }
+.admin-search { border-radius: 18px; padding: 8px 14px; }
+.admin-list { max-height: 50vh; }
+.admin-list .avatar { width: 34px; height: 34px; font-size: 12px; }
+/* Gelesen-Häkchen auf der blauen Blase gut sichtbar (die Zeile selbst nicht mehr halb durchsichtig) */
+.msg.me .meta { opacity: 1; color: rgba(255, 255, 255, .72); }
+.msg.me .tick.read { color: #7df9ff; text-shadow: 0 0 1px rgba(0, 0, 0, .25); }
+.msg.me.big .meta, .msg.me.has-media .meta, .msg.me.sticker .meta, .msg.me.deleted .meta { color: var(--muted); }
+.msg.me.big .tick.read, .msg.me.has-media .tick.read, .msg.me.sticker .tick.read { color: var(--accent); text-shadow: none; }

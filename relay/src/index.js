@@ -59,6 +59,15 @@ export default {
     // Wie viele Personen auf der Welt besitzen welchen Erfolg? (öffentlich, nur Zahlen)
     if (parts[1] === 'achstats') return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/counts');
     // Welche Erfolge hat dieser Code? (für das Profil aus UpReels, nur die IDs)
+    // Admin: Ist dieser Code Admin? (öffentlich, nur ja/nein)
+    if (parts[1] === 'isadmin') return json({ admin: admins(env).includes(String(parts[2] || '').toUpperCase()) });
+    // Admin: alle Nutzer (Name, Code, zuletzt aktiv) – nur mit Signatur eines Admin-Codes
+    if (parts[1] === 'admin' && parts[2] === 'users' && req.method === 'POST') {
+      const b = await req.json().catch(() => ({}));
+      const code = String(b.code || '').toUpperCase();
+      if (!admins(env).includes(code) || !freshTs(Number(b.ts)) || !(await codeSigned(env, code, `adminusers|${code}|${b.ts}`, b.sig))) return fail(403, 'forbidden');
+      return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/users');
+    }
     if (parts[1] === 'achuser') {
       const c = String(parts[2] || '').toUpperCase();
       if (!CODE_RE.test(c)) return fail(400, 'bad code');
@@ -126,6 +135,7 @@ export class Mailbox {
         case 'pushtest': return this.pushTest(code, await req.json());
         case 'verify': return this.verifyFromOwner(code, await req.json()); // intern
         case 'achreport': return this.achReport(code, await req.json());
+        case 'seen': return this.seen(code, await req.json());
         default: return fail(404, 'not found');
       }
     } catch (e) {
@@ -174,6 +184,15 @@ export class Mailbox {
     if (!(await this.ownerOk('achreport', code, b.ts, b.sig, `|${ach.join(',')}`))) return fail(403, 'forbidden');
     const stats = this.env.ACHSTATS.get(this.env.ACHSTATS.idFromName('global'));
     await stats.fetch('https://stats/set', { method: 'POST', body: JSON.stringify({ code, ach }) });
+    return json({ ok: true });
+  }
+
+  // „Ich nutze WhatsUp“: Name, Version, Plattform – für die Nutzerliste des Admins (einmal am Tag)
+  async seen(code, b) {
+    const name = textOf(b.name, 24);
+    if (!name || !(await this.ownerOk('seen', code, b.ts, b.sig, `|${name}`))) return fail(403, 'forbidden');
+    const stats = this.env.ACHSTATS.get(this.env.ACHSTATS.idFromName('global'));
+    await stats.fetch('https://stats/seen', { method: 'POST', body: JSON.stringify({ code, name, ver: textOf(b.ver, 20), plat: b.plat === 'web' ? 'web' : 'windows' }) });
     return json({ ok: true });
   }
 
@@ -297,6 +316,8 @@ export class AchStats {
   constructor(state) {
     this.sql = state.storage.sql;
     this.sql.exec('CREATE TABLE IF NOT EXISTS owned (code TEXT, ach TEXT, PRIMARY KEY (code, ach))');
+    // Nutzerliste für den Admin: wer WhatsUp nutzt (gemeldet von der App, signiert)
+    this.sql.exec('CREATE TABLE IF NOT EXISTS users (code TEXT PRIMARY KEY, name TEXT, ver TEXT, plat TEXT, first INTEGER, last INTEGER)');
     this.cache = null; // { at, body }
   }
 
@@ -309,6 +330,25 @@ export class AchStats {
       for (const id of ach) if (ACH_ID_RE.test(id)) this.sql.exec('INSERT OR IGNORE INTO owned (code, ach) VALUES (?, ?)', code, id);
       this.cache = null;
       return json({ ok: true });
+    }
+    if (path === '/seen') { // nur intern vom Briefkasten (Signatur dort geprüft)
+      const { code, name, ver, plat } = await req.json();
+      if (!CODE_RE.test(code)) return fail(400, 'bad code');
+      const now = Date.now();
+      this.sql.exec(`INSERT INTO users (code, name, ver, plat, first, last) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET name = excluded.name, ver = excluded.ver, plat = excluded.plat, last = excluded.last`, code, name, ver, plat, now, now);
+      return json({ ok: true });
+    }
+    if (path === '/users') { // nur intern, Admin-Prüfung im Worker
+      const users = this.sql.exec('SELECT code, name, ver, plat, first, last FROM users ORDER BY last DESC LIMIT 5000').toArray();
+      const day = Date.now() - 86400000, week = Date.now() - 7 * 86400000;
+      return json({
+        count: users.length,
+        active24h: users.filter((u) => u.last >= day).length,
+        active7d: users.filter((u) => u.last >= week).length,
+        withAchievements: this.sql.exec('SELECT COUNT(DISTINCT code) AS n FROM owned').toArray()[0].n,
+        users,
+      });
     }
     if (path.startsWith('/user/')) {
       const c = path.slice(6);
