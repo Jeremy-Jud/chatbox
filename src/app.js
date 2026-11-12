@@ -2040,45 +2040,82 @@
       };
       remove.classList.toggle('hidden', !draftAv);
 
-      box.appendChild(el('div', 'label', `${g.members.length} Mitglieder`));
+      // Ungespeicherte Änderungen (Name, Beschreibung, Bild) übernehmen, bevor ein anderes Fenster aufgeht
+      const isDirty = () => nameIn.value.trim() !== g.name || descIn.value.trim() !== (g.desc || '') || draftAv !== (g.avatar || null);
+      const saveIfDirty = () => { if (isDirty() && nameIn.value.trim()) updateGroup(g, { name: nameIn.value, desc: descIn.value, avatar: draftAv }); };
+
+      const memHead = el('div', 'members-head');
+      memHead.appendChild(el('div', 'label', `${g.members.length} Mitglieder`));
+      const candidates = friendCodes().filter((c) => !g.members.includes(c));
+      const addBtn = el('button', 'link members-add', '➕ Mitglieder hinzufügen');
+      addBtn.type = 'button';
+      addBtn.id = 'groupAddBtn';
+      addBtn.onclick = () => { saveIfDirty(); openAddMembers(g); };
+      memHead.appendChild(addBtn);
+      box.appendChild(memHead);
       const ul = el('ul', 'members');
       [me.code, ...others(g)].forEach((c) => {
-        const li = el('li');
+        const li = el('li', 'member-row');
         const cc = contacts[c] || {};
         li.appendChild(avatarEl(nameOf(c), c === me.code ? me.avatar : cc.avatar, c, 'sm', c === me.code ? null : isOnline(c), c === me.code ? me.frame : cc.frame));
-        li.appendChild(el('span', '', nameOf(c) + (c === me.code ? ' (du)' : '') + (c === g.owner ? ' 👑' : '')));
+        li.appendChild(el('span', 'member-name', (c === me.code ? me.name : nameOf(c)) + (c === me.code ? ' (du)' : '') + (c === g.owner ? ' 👑' : '')));
+        if (c !== me.code && !isFriend(c)) li.appendChild(el('span', 'member-tag', 'kein Freund'));
+        li.appendChild(el('span', 'member-go', '›'));
+        // Antippen: Profil mit Code, seltensten Erfolgen, „Als Freund hinzufügen“ …
+        li.title = 'Profil ansehen';
+        li.onclick = () => { saveIfDirty(); openProfile(c, c === me.code ? me.name : nameOf(c)); };
         ul.appendChild(li);
       });
       box.appendChild(ul);
       box.appendChild(clearRow(activeChat));
-      const candidates = friendCodes().filter((c) => !g.members.includes(c));
-      let list = null;
-      if (candidates.length) {
-        box.appendChild(el('div', 'label', 'Freunde hinzufügen'));
-        list = checkList(candidates);
-        box.appendChild(list);
-      }
       const actions = buttons(
         ['Verlassen', 'danger', () => { if (confirm(`Gruppe „${g.name}“ verlassen? Der Verlauf wird gelöscht.`)) leaveGroup(g); }],
         ['Schließen', 'primary', () => {
           if (!nameIn.value.trim()) { nameIn.focus(); return; }
           updateGroup(g, { name: nameIn.value, desc: descIn.value, avatar: draftAv });
-          if (list && list.selected().length) addToGroup(g, list.selected());
           closeModal();
         }],
       );
       const mainBtn = actions.querySelector('.primary');
       mainBtn.id = 'groupSaveBtn';
       function refresh() {
-        const dirty = nameIn.value.trim() !== g.name || descIn.value.trim() !== (g.desc || '') ||
-          draftAv !== (g.avatar || null) || !!(list && list.selected().length);
-        mainBtn.textContent = dirty ? 'Speichern' : 'Schließen';
+        mainBtn.textContent = isDirty() ? 'Speichern' : 'Schließen';
         remove.classList.toggle('hidden', !draftAv);
       }
+      addBtn.classList.toggle('muted-link', !candidates.length);
       nameIn.addEventListener('input', () => { refresh(); if (!draftAv) drawAv(); });
       descIn.addEventListener('input', refresh);
-      if (list) list.addEventListener('change', refresh);
       box.appendChild(actions);
+    });
+  }
+
+  // Eigenes Fenster: Freunde zur Gruppe hinzufügen
+  function openAddMembers(g) {
+    const candidates = friendCodes().filter((c) => !g.members.includes(c));
+    openModal((box) => {
+      box.appendChild(el('h3', '', '➕ Mitglieder hinzufügen'));
+      box.appendChild(el('div', 'muted', `Zu „${g.name}“`));
+      if (!candidates.length) {
+        box.appendChild(el('p', 'muted', 'Alle deine Freunde sind schon in dieser Gruppe. Füge zuerst neue Freunde per Code hinzu.'));
+        box.appendChild(buttons(['Zurück', 'primary', () => openInfo()]));
+        return;
+      }
+      const list = checkList(candidates);
+      box.appendChild(list);
+      const err = el('div', 'status err');
+      box.appendChild(err);
+      const actions = buttons(['Zurück', 'ghost', () => openInfo()], ['Hinzufügen', 'primary', () => {
+        const sel = list.selected();
+        if (!sel.length) { err.textContent = 'Wähle mindestens einen Freund aus.'; return; }
+        addToGroup(g, sel);
+        toast(`👥 ${sel.length === 1 ? nameOf(sel[0]) + ' wurde' : sel.length + ' Freunde wurden'} hinzugefügt`);
+        openInfo();
+      }]);
+      box.appendChild(actions);
+      const addB = actions.querySelector('.primary');
+      const upd = () => { const n = list.selected().length; addB.textContent = n ? `Hinzufügen (${n})` : 'Hinzufügen'; };
+      list.addEventListener('change', upd);
+      upd();
     });
   }
 

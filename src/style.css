@@ -995,3 +995,12 @@ button.sender:hover { background: var(--soft); }
 .chall-lock { font-size: 16px; }
 .chall-admin { border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .chall-admin-btns { display: flex; gap: 16px; flex-wrap: wrap; }
+
+/* Gruppen-Info: Mitglieder antippbar, „Mitglieder hinzufügen“ als eigener Knopf */
+.members-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.members-add { font-size: 12.5px; font-weight: 600; }
+.member-row { cursor: pointer; }
+.member-row:hover { background: var(--soft); }
+.member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-tag { font-size: 10.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 1px 6px; white-space: nowrap; }
+.member-go { color: var(--muted); font-size: 18px; padding: 0 2px; }
