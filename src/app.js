@@ -93,7 +93,7 @@
   let recentEmojis = store.load('recentEmojis', []);
   const settings = Object.assign({
     theme: 'system', notify: true, sound: true, preview: true, autoUpdate: true,
-    runInBackground: true, openAtLogin: false, bgHintShown: false, relay: true, popupNotify: true,
+    runInBackground: true, openAtLogin: false, bgHintShown: false, relay: true, popupNotify: true, leaderboard: true,
   }, store.load('settings', {}));
   const saveSettings = () => store.save('settings', settings);
   let unlocked = store.load('achievements', {});   // id -> Zeitstempel
@@ -524,6 +524,8 @@
       const msg = { id, from, text, ts: clampTs(data.ts) };
       const reply = validReply(data.reply);
       if (reply) msg.reply = reply;
+      const poll = validPoll(data.poll);
+      if (poll) msg.poll = poll;
       if (media) { msg.media = mediaMeta(media); putMedia(chatId, id, media.data); }
       list.push(msg);
       saveChat(chatId);
@@ -559,6 +561,7 @@
     if (useRelay && (!relay.canSend(code) || (msg.relayedTo || []).includes(code))) return;
     const wire = { id: msg.id, text: msg.text, ts: msg.ts, pv: me.pv || 0 };
     if (msg.reply) wire.reply = msg.reply;
+    if (msg.poll) wire.poll = msg.poll;
     if (msg.media) {
       const data = await getMedia(chatId, msg.id);
       if (!data) return;
@@ -623,9 +626,10 @@
     }
   }
 
-  async function sendMessage(chatId, text, media) {
+  async function sendMessage(chatId, text, media, extra = {}) {
     const to = recipientsOf(chatId);
     const msg = { id: crypto.randomUUID(), from: me.code, text, ts: Date.now(), to, sentTo: [], deliveredTo: [] };
+    if (extra.poll) msg.poll = extra.poll; // Umfrage (Text ist der Hinweis für ältere Versionen)
     // Antwort auf eine Nachricht?
     if (pendingReply && pendingReply.chatId === chatId) {
       const orig = findMsg(chatId, pendingReply.id);
@@ -642,6 +646,7 @@
     });
 
     stats.sent++;
+    if (typeof games === 'object') games.nudge();
     if (chatId.startsWith('g:')) stats.groupSent++;
     if (media) { if (media.kind === 'audio') stats.voices = (stats.voices || 0) + 1; else if (media.kind === 'video') stats.videos = (stats.videos || 0) + 1; else if (media.kind === 'gif') stats.gifs++; else stats.images++; }
     stats.emojis += emojiCount(text);
@@ -771,6 +776,16 @@
       if (!m) { tombstones[chatId + '|' + id] = Date.now(); saveTombstones(); return; }
       if (m.from !== from || m.deleted) return; // nur der Absender darf für alle löschen
       markDeleted(chatId, m);
+      saveChat(chatId); scheduleRender();
+    } else if (data.act === 'vote') {
+      if (!m || m.deleted || !m.poll) return;
+      const ts = Number(data.ts) || 0;
+      m.vts = m.vts || {};
+      if (ts && ts <= (m.vts[from] || 0)) return; // nur die neueste Stimme zählt
+      if (ts) m.vts[from] = ts;
+      m.votes = m.votes || {};
+      const opts = validVote(data.opts, m.poll);
+      if (opts.length) m.votes[from] = opts; else delete m.votes[from];
       saveChat(chatId); scheduleRender();
     } else if (data.act === 'react') {
       if (!m || m.deleted) return;
@@ -1284,7 +1299,7 @@
   const fmtTime = (ts) => new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   const fmtDay = (ts) => new Date(ts).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   const durText = (s) => { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-  const preview = (m) => (m.deleted ? '🚫 Diese Nachricht wurde gelöscht' : m.media
+  const preview = (m) => (m.deleted ? '🚫 Diese Nachricht wurde gelöscht' : m.poll ? '📊 ' + m.poll.q : m.media
     ? (m.media.kind === 'sticker' ? '🩷 Sticker' : m.media.kind === 'audio' ? '🎤 Sprachnachricht (' + durText(m.media.dur) + ')' : m.media.kind === 'video' ? '🎥 Video (' + durText(m.media.dur) + ')' : m.media.kind === 'gif' ? '🎞️ GIF' : '📷 Bild') + (m.text ? ' ' + m.text : '')
     : m.text);
 
@@ -1315,7 +1330,23 @@
     WHATSUPVIP: [...Object.keys(FRAMES).filter((f) => FRAMES[f].locked).map((f) => 'frame:' + f), ...Object.keys(BANNERS).map((b) => 'banner:' + b)],
   };
   let redeemed = store.load('redeemed', []);
-  const rewards = () => new Set(redeemed.flatMap((c) => REDEEM_CODES[c] || []));
+  let challDone = store.load('challDone', 0); // geschaffte Wochen-Challenges (vom Server)
+  const rewards = () => {
+    const r = new Set(redeemed.flatMap((c) => REDEEM_CODES[c] || []));
+    Object.keys(FRAMES).forEach((f) => { if (FRAMES[f].challenge && challDone >= FRAMES[f].challenge) r.add('frame:' + f); });
+    Object.keys(BANNERS).forEach((b) => { if (BANNERS[b].challenge && challDone >= BANNERS[b].challenge) r.add('banner:' + b); });
+    return r;
+  };
+  // Neue Zahl geschaffter Challenges übernehmen; neu freigeschaltete Belohnungen melden
+  function setChallDone(n) {
+    n = Math.max(0, Math.floor(Number(n) || 0));
+    if (n === challDone) return;
+    const before = rewards();
+    challDone = n;
+    store.save('challDone', n);
+    const fresh = [...rewards()].filter((r) => !before.has(r));
+    if (fresh.length) toast('🏅 Challenge-Belohnung: ' + fresh.map(rewardName).join(' und ') + ' freigeschaltet!', true);
+  }
   const frameLocked = (id) => !!(id && FRAMES[id] && FRAMES[id].locked && !rewards().has('frame:' + id));
   const bannerLocked = (id) => !!(id && !rewards().has('banner:' + id));
   const rewardName = (r) => { const [k, id] = r.split(':'); return k === 'frame' ? `Rahmen „${FRAMES[id].name}“` : `Banner „${BANNERS[id].name}“`; };
@@ -1470,6 +1501,137 @@
     });
   }
 
+  // ================= Umfragen in Gruppen =================
+  const POLL_MAX_OPTS = 10;
+  function validPoll(p) {
+    if (!p || typeof p !== 'object') return null;
+    const q = clean(p.q, 200);
+    const opts = Array.isArray(p.opts) ? p.opts.map((o) => clean(o, 80)).filter(Boolean).slice(0, POLL_MAX_OPTS) : [];
+    if (!q || opts.length < 2) return null;
+    return { q, opts, multi: !!p.multi };
+  }
+  function validVote(v, poll) {
+    const list = [...new Set((Array.isArray(v) ? v : []).map(Number).filter((i) => Number.isInteger(i) && i >= 0 && i < poll.opts.length))];
+    return poll.multi ? list : list.slice(0, 1);
+  }
+  function vote(chatId, m, i) {
+    if (!m.poll || m.deleted) return;
+    m.votes = m.votes || {};
+    const mine = m.votes[me.code] || [];
+    let next;
+    if (m.poll.multi) next = mine.includes(i) ? mine.filter((x) => x !== i) : [...mine, i].sort((a, b) => a - b);
+    else next = mine[0] === i ? [] : [i];
+    if (next.length) m.votes[me.code] = next; else delete m.votes[me.code];
+    saveChat(chatId); scheduleRender();
+    sendAction(chatId, { act: 'vote', id: m.id, opts: next });
+  }
+  // Umfrage in der Nachricht: Frage, Antworten mit Balken, Anzahl Stimmen
+  function pollEl(chatId, m) {
+    const p = m.poll, votes = m.votes || {};
+    const voters = Object.keys(votes);
+    const count = p.opts.map((_, i) => voters.filter((c) => votes[c].includes(i)).length);
+    const most = Math.max(1, ...count);
+    const mine = votes[me.code] || [];
+    const box = el('div', 'poll');
+    box.appendChild(el('div', 'poll-q', p.q));
+    box.appendChild(el('div', 'poll-hint', p.multi ? 'Wähle eine oder mehrere Antworten' : 'Wähle eine Antwort'));
+    p.opts.forEach((o, i) => {
+      const b = el('button', 'poll-opt' + (mine.includes(i) ? ' on' : ''));
+      b.type = 'button';
+      const pct = voters.length ? Math.round(count[i] / voters.length * 100) : 0;
+      const bar = el('span', 'poll-bar' + (count[i] === most && count[i] > 0 ? ' top' : ''));
+      bar.style.width = (voters.length ? count[i] / voters.length * 100 : 0) + '%';
+      b.append(bar, el('span', 'poll-check ' + (p.multi ? 'multi' : 'single'), mine.includes(i) ? '✓' : ''), el('span', 'poll-text', o), el('span', 'poll-n', voters.length ? `${count[i]} · ${pct} %` : ''));
+      b.onclick = (e) => { e.stopPropagation(); vote(chatId, m, i); };
+      box.appendChild(b);
+    });
+    const foot = el('div', 'poll-foot');
+    foot.appendChild(el('span', '', `${voters.length} ${voters.length === 1 ? 'Stimme' : 'Stimmen'}`));
+    if (voters.length) {
+      const who = el('button', 'poll-who', 'Wer hat abgestimmt?');
+      who.type = 'button';
+      who.onclick = (e) => { e.stopPropagation(); openPollVoters(m); };
+      foot.appendChild(who);
+    }
+    box.appendChild(foot);
+    return box;
+  }
+  function openPollVoters(m) {
+    const votes = m.votes || {};
+    openModal((box) => {
+      box.appendChild(el('h3', '', '📊 ' + m.poll.q));
+      m.poll.opts.forEach((o, i) => {
+        const codes = Object.keys(votes).filter((c) => votes[c].includes(i));
+        const sec = el('div', 'info-sec');
+        sec.appendChild(el('div', 'rare-ach-title', `${o} · ${codes.length}`));
+        if (!codes.length) sec.appendChild(el('div', 'muted info-none', 'Noch keine Stimme'));
+        else {
+          const ul = el('ul', 'members info-list');
+          codes.forEach((c) => {
+            const ct = contacts[c];
+            const li = el('li');
+            li.append(avatarEl(c === me.code ? me.name : nameOf(c), c === me.code ? me.avatar : ct && ct.avatar, c, '', null, c === me.code ? me.frame : ct && ct.frame),
+              el('div', 'fname', c === me.code ? 'Du' : nameOf(c)));
+            ul.appendChild(li);
+          });
+          sec.appendChild(ul);
+        }
+        box.appendChild(sec);
+      });
+      box.appendChild(buttons(['Schließen', 'primary', closeModal]));
+    });
+  }
+  // Neue Umfrage erstellen
+  function openNewPoll() {
+    const chatId = activeChat;
+    if (!chatId || !chatId.startsWith('g:')) return;
+    hideEmoji();
+    openModal((box) => {
+      box.appendChild(el('h3', '', '📊 Neue Umfrage'));
+      const q = el('input', 'poll-in');
+      q.placeholder = 'Frage stellen…'; q.maxLength = 200;
+      box.appendChild(q);
+      box.appendChild(el('div', 'label', 'Antworten'));
+      const list = el('div', 'poll-in-list');
+      box.appendChild(list);
+      const addOpt = (val = '') => {
+        if (list.children.length >= POLL_MAX_OPTS) return;
+        const row = el('div', 'poll-in-row');
+        const inp = el('input', 'poll-in');
+        inp.placeholder = `Antwort ${list.children.length + 1}`; inp.maxLength = 80; inp.value = val;
+        const x = el('button', 'ic', '');
+        x.type = 'button'; x.title = 'Entfernen'; x.innerHTML = '<svg><use href="#i-x"/></svg>';
+        x.onclick = () => { if (list.children.length > 2) { row.remove(); upd(); } };
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (row === list.lastElementChild) { addOpt(); list.lastElementChild.querySelector('input').focus(); } } });
+        row.append(inp, x);
+        list.appendChild(row);
+        upd();
+      };
+      const more = el('button', 'link poll-more', '+ Antwort hinzufügen');
+      more.type = 'button';
+      more.onclick = () => { addOpt(); list.lastElementChild.querySelector('input').focus(); };
+      const upd = () => { more.classList.toggle('hidden', list.children.length >= POLL_MAX_OPTS); };
+      box.appendChild(more);
+      const multiRow = el('label', 'setting');
+      const multi = el('input');
+      multi.type = 'checkbox'; multi.className = 'switch';
+      multiRow.append(el('span', '', 'Mehrere Antworten erlauben'), multi);
+      box.appendChild(multiRow);
+      const err = el('div', 'status err');
+      box.appendChild(err);
+      addOpt(); addOpt();
+      box.appendChild(buttons(['Abbrechen', 'ghost', closeModal], ['Senden', 'primary', () => {
+        const poll = validPoll({ q: q.value, opts: [...list.querySelectorAll('input')].map((i) => i.value), multi: multi.checked });
+        if (!clean(q.value, 200)) { err.textContent = 'Schreib eine Frage.'; q.focus(); return; }
+        if (!poll) { err.textContent = 'Gib mindestens zwei Antworten ein.'; return; }
+        closeModal();
+        sendMessage(chatId, `📊 Umfrage: ${poll.q}\n${poll.opts.map((o) => '• ' + o).join('\n')}\n(Zum Abstimmen WhatsUp aktualisieren)`, null, { poll });
+      }]));
+      setTimeout(() => q.focus(), 0);
+    });
+  }
+  $('pollBtn').onclick = openNewPoll;
+
   // ---- Gelesen: Lesebestätigungen senden, wenn man den Chat wirklich sieht ----
   let readTimer = null;
   function scheduleReadReceipts() {
@@ -1546,6 +1708,7 @@
 
     $('chatAvatar').replaceChildren(chatAvatar(chatId, '', !isGroup));
     $('callBtns').classList.toggle('hidden', isGroup); // Anrufe nur im Einzelchat
+    $('pollBtn').classList.toggle('hidden', !isGroup); // Umfragen nur in Gruppen
     if (isGroup) {
       const g = groups[code];
       const on = others(g).filter(isOnline).length;
@@ -1596,7 +1759,8 @@
       else if (isVoice) div.appendChild(voice.el(chatId, m));
       else if (m.media && m.media.kind === 'video') div.appendChild(video.el(chatId, m));
       else if (m.media) div.appendChild(mediaEl(chatId, m));
-      if (m.text) div.appendChild(el('div', 'text', m.text));
+      if (m.poll && !m.deleted) { div.classList.add('has-poll'); div.appendChild(pollEl(chatId, m)); }
+      else if (m.text) div.appendChild(el('div', 'text', m.text));
       const meta = el('div', 'meta', fmtTime(m.ts));
       if (mine && m.to && m.to.length && !m.deleted) {
         const read = m.readBy ? m.to.filter((c) => m.readBy[c]).length : 0;
@@ -1782,6 +1946,12 @@
         pill.classList.toggle('hidden', !ids.length);
         achWrap.replaceChildren(ids.length ? rareAchievementsEl(ids) : el('div', 'muted center', 'Noch keine Erfolge bekannt.'));
       };
+      // 🏅 Challenges als Abzeichen
+      const cpill = el('div', 'pill hidden');
+      head.appendChild(cpill);
+      fetch(`${relay.url()}/v1/reels/challstats/${code}`).then((r) => r.json()).then((t) => {
+        if (t && t.done) { cpill.textContent = `🏅 ${t.done} ${t.done === 1 ? 'Challenge' : 'Challenges'} · ${t.points} Punkte`; cpill.classList.remove('hidden'); }
+      }).catch(() => {});
       if (mine) showAch(Object.keys(unlocked));
       else if (c && c.ach && c.ach.length) showAch(c.ach);
       else {
@@ -1818,6 +1988,11 @@
         else if (c.status) head.appendChild(el('div', 'muted', c.status));
         head.appendChild(el('div', 'muted', `Code: ${code} · ${isOnline(code) ? 'online' : 'offline'}`));
         if (c.badges) head.appendChild(el('div', 'pill', `🏆 ${c.badges} ${c.badges === 1 ? "Erfolg" : "Erfolge"}`));
+        const cpill = el('div', 'pill hidden');
+        head.appendChild(cpill);
+        fetch(`${relay.url()}/v1/reels/challstats/${code}`).then((r) => r.json()).then((t) => {
+          if (t && t.done) { cpill.textContent = `🏅 ${t.done} ${t.done === 1 ? 'Challenge' : 'Challenges'} · ${t.points} Punkte`; cpill.classList.remove('hidden'); }
+        }).catch(() => {});
         box.appendChild(head);
         if (c.ach && c.ach.length) box.appendChild(rareAchievementsEl(c.ach));
         box.appendChild(reels.profileSection(code, c.name));
@@ -2046,6 +2221,7 @@
     $('setBackground').checked = settings.runInBackground;
     $('setLogin').checked = settings.openAtLogin;
     $('setRelay').checked = settings.relay !== false;
+    $('setLeaderboard').checked = settings.leaderboard !== false;
     relay.renderRelayStatus();
     renderNotifyRows();
     $('setAutoUpdate').checked = settings.autoUpdate;
@@ -2114,7 +2290,7 @@
       const locked = frameLocked(id);
       const b = el('button', 'frame-opt' + (id === draftFrame ? ' active' : '') + (id && FRAMES[id].locked ? ' exclusive' : '') + (locked ? ' locked' : ''));
       b.type = 'button';
-      b.title = id ? FRAMES[id].name + (locked ? ' – mit einem Code freischalten (Erfolge)' : '') : 'Kein Rahmen';
+      b.title = id ? FRAMES[id].name + (locked ? (FRAMES[id].challenge ? ` – ab ${FRAMES[id].challenge} geschafften Wochen-Challenges` : ' – mit einem Code freischalten (Erfolge)') : '') : 'Kein Rahmen';
       b.appendChild(avatarEl(name, draftAvatar, me.code, 'md', null, id));
       b.appendChild(el('span', 'frame-name', id ? FRAMES[id].name : 'Keiner'));
       b.onclick = () => {
@@ -2198,6 +2374,11 @@
   $('setPreview').onchange = (e) => { settings.preview = e.target.checked; saveSettings(); };
   $('setBackground').onchange = (e) => { settings.runInBackground = e.target.checked; saveSettings(); sendPrefs(); };
   $('setLogin').onchange = (e) => { settings.openAtLogin = e.target.checked; saveSettings(); sendPrefs(); };
+  $('setLeaderboard').onchange = (e) => {
+    settings.leaderboard = e.target.checked; saveSettings();
+    relay.reportSeen();
+    toast(e.target.checked ? '📊 Du erscheinst in den Ranglisten' : '🙈 Du bist in den Ranglisten ausgeblendet');
+  };
   $('setRelay').onchange = (e) => {
     settings.relay = e.target.checked; saveSettings();
     if (settings.relay) relay.start(); else relay.renderRelayStatus();
@@ -2289,7 +2470,7 @@
   $('closeBtn').onclick = () => window.chatboxWindow.close();
   $('pinBtn').onclick = async () => { const p = await window.chatboxWindow.togglePin(); $('pinBtn').classList.toggle('active', p); };
   $('backBtn').onclick = () => (view === 'viewChat' ? closeChat() : (show(lastTab), render()));
-  $('trophyBtn').onclick = () => { show('viewAchievements'); renderAchievements(); };
+  $('trophyBtn').onclick = () => { show('viewAchievements'); renderAchievements(); games.open(); };
   $('meCardBtn').onclick = openSettings;
   $('newGroupBtn').onclick = openNewGroup;
   $('chatHead').onclick = openInfo;
@@ -2517,7 +2698,8 @@
       }
       scheduleRender();
     }
-    return { mark, badge, hint, current, tick };
+    const currentMax = () => Math.max(0, ...friendCodes().map(current));
+    return { mark, badge, hint, current, tick, currentMax };
   })();
 
   // ================= Sticker (nur für einen bestimmten Nutzer) =================
@@ -3734,6 +3916,184 @@
     };
   })();
 
+  // ================= Ranglisten und Wochen-Challenges =================
+  const games = (() => {
+    const api = (p) => relay.url() + p;
+    let tab = 'ach', lbType = 'ach', lbScope = 'all', isAdmin = false, lastChall = null;
+    const section = $('viewAchievements');
+    // Woche beginnt Montag 00:00 UTC (wie auf dem Server)
+    const weekId = () => { const d = new Date(); const day = (d.getUTCDay() + 6) % 7; return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day)).toISOString().slice(0, 10); };
+    // Gesendete Nachrichten in dieser Woche (ab dem ersten Öffnen der App in der Woche)
+    function weekSent() {
+      const w = weekId();
+      let b = store.load('weekBase', null);
+      if (!b || b.week !== w) { b = { week: w, sent: stats.sent }; store.save('weekBase', b); }
+      return Math.max(0, stats.sent - b.sent);
+    }
+    weekSent();
+    // Fortschritt melden und Challenges holen
+    let reporting = null;
+    function reportProgress() {
+      if (!relay.ready()) return Promise.resolve(null);
+      if (!reporting) {
+        reporting = (async () => {
+          const sent = weekSent(), fireN = fire.currentMax(), ts = Date.now();
+          const sig = await relay.signText(`challprogress|${me.code}|${ts}|${weekId()}|${sent}|${fireN}`);
+          const r = await fetch(api('/v1/reels/progress'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: me.code, ts, sig, sent, fire: fireN }) });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const d = await r.json();
+          lastChall = d;
+          setChallDone(d.total && d.total.done);
+          return d;
+        })().catch((e) => { console.warn('Challenges:', e); return null; }).finally(() => { setTimeout(() => { reporting = null; }, 0); });
+      }
+      return reporting;
+    }
+    // Nach dem Senden gelegentlich melden (höchstens alle 2 Minuten)
+    let reportTimer = null;
+    function nudge() { if (!reportTimer) reportTimer = setTimeout(() => { reportTimer = null; reportProgress(); }, 120000); }
+
+    // ---------- Tabs ----------
+    function setTab(t) {
+      tab = t;
+      section.dataset.tab = t;
+      $('achTabs').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.tab === t));
+      $('lbPanel').classList.toggle('hidden', t !== 'lb');
+      $('challPanel').classList.toggle('hidden', t !== 'chall');
+      if (t === 'lb') renderLb();
+      if (t === 'chall') renderChall();
+    }
+    $('achTabs').querySelectorAll('button').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
+    function open() { setTab(tab); relay.isAdmin().then((a) => { isAdmin = a; $('challAdmin').classList.toggle('hidden', !a); }); }
+
+    // ---------- Rangliste ----------
+    const fmtVal = (t, v) => (t === 'ach' ? `🏆 ${v}` : t === 'fire' ? `🔥 ${v} ${v === 1 ? 'Tag' : 'Tage'}` : `🏅 ${v} Pkt.`);
+    $('lbTypes').querySelectorAll('button').forEach((b) => { b.onclick = () => { lbType = b.dataset.type; renderLb(); }; });
+    $('lbScope').querySelectorAll('button').forEach((b) => { b.onclick = () => { lbScope = b.dataset.scope; renderLb(); }; });
+    function lbRow(u) {
+      const li = el('li', 'lb-row' + (u.code === me.code ? ' me' : ''));
+      const medal = u.rank === 1 ? '🥇' : u.rank === 2 ? '🥈' : u.rank === 3 ? '🥉' : '#' + u.rank;
+      li.appendChild(el('span', 'lb-rank' + (u.rank <= 3 ? ' medal' : ''), medal));
+      const c = contacts[u.code], mine = u.code === me.code;
+      li.appendChild(avatarEl(u.name, mine ? me.avatar : c && c.avatar, u.code, '', null, mine ? me.frame : c && c.frame));
+      const meta = el('div', 'fmeta');
+      meta.append(el('div', 'fname', mine ? `${u.name} (Du)` : u.name), el('div', 'flast', u.code + (u.done ? ` · ${u.done} Challenges` : '')));
+      li.appendChild(meta);
+      li.appendChild(el('span', 'lb-val', fmtVal(lbType, u.value)));
+      li.onclick = () => openProfile(u.code, u.name);
+      return li;
+    }
+    let lbReq = 0;
+    async function renderLb() {
+      $('lbTypes').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.type === lbType));
+      $('lbScope').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.scope === lbScope));
+      const ul = $('lbList'), mineBox = $('lbMe');
+      ul.replaceChildren(el('li', 'muted center', 'Wird geladen…'));
+      mineBox.classList.add('hidden');
+      if (!relay.ready()) { ul.replaceChildren(el('li', 'muted center', 'Für Ranglisten muss in den Einstellungen der Briefkasten-Server an sein.')); return; }
+      const my = ++lbReq;
+      if (lbType === 'chall') await reportProgress(); else relay.reportSeen();
+      try {
+        const d = await (await fetch(api(`/v1/leaderboard?type=${lbType}&me=${me.code}&friends=${friendCodes().join(',')}`))).json();
+        if (my !== lbReq) return;
+        const list = lbScope === 'all' ? d.top : d.friends;
+        ul.replaceChildren();
+        if (settings.leaderboard === false) ul.appendChild(el('li', 'lb-hint', '🙈 Du bist ausgeblendet – nur du siehst dich hier. (Einstellungen → Ranglisten)'));
+        if (!list.length) ul.appendChild(el('li', 'muted center', lbScope === 'friends' ? 'Noch keine Freunde in dieser Rangliste.' : 'Noch niemand in dieser Rangliste.'));
+        list.forEach((u) => ul.appendChild(lbRow(u)));
+        // Eigener Platz, falls nicht in der Liste zu sehen
+        if (d.me && !list.some((u) => u.code === me.code)) { mineBox.replaceChildren(lbRow(d.me)); mineBox.classList.remove('hidden'); }
+        if (lbScope === 'all' && d.total > 50) ul.appendChild(el('li', 'muted center', `Top 50 von ${d.total}`));
+      } catch { if (my === lbReq) ul.replaceChildren(el('li', 'muted center', '⚠️ Rangliste nicht erreichbar')); }
+    }
+
+    // ---------- Wochen-Challenges ----------
+    const tierList = () => {
+      const t = [];
+      Object.keys(BANNERS).forEach((b) => { if (BANNERS[b].challenge) t.push({ n: BANNERS[b].challenge, kind: 'banner', id: b, name: `Banner „${BANNERS[b].name}“` }); });
+      Object.keys(FRAMES).forEach((f) => { if (FRAMES[f].challenge) t.push({ n: FRAMES[f].challenge, kind: 'frame', id: f, name: `Rahmen „${FRAMES[f].name}“` }); });
+      return t.sort((a, b) => a.n - b.n || a.kind.localeCompare(b.kind));
+    };
+    function challText(c) {
+      const t = music.track(c.music);
+      switch (c.type) {
+        case 'reel_sound': return { icon: '🎵', title: `Poste ein UpReel mit „${t ? t.title : 'dem Sound der Woche'}“`, desc: 'Benutze den Sound der Woche in einem UpReel oder Foto-Beitrag.' };
+        case 'reel_post': return { icon: '🎬', title: `Poste ${c.goal} UpReels`, desc: 'Videos oder Foto-Beiträge, diese Woche.' };
+        case 'reel_likes': return { icon: '❤️', title: `Sammle ${c.goal} Likes`, desc: 'Auf UpReels, die du diese Woche postest.' };
+        case 'comments': return { icon: '💬', title: `Schreib ${c.goal} Kommentare`, desc: 'Unter UpReels von anderen oder deinen.' };
+        case 'messages': return { icon: '✉️', title: `Schick ${c.goal} Nachrichten`, desc: 'In Chats und Gruppen, diese Woche.' };
+        case 'fire': return { icon: '🔥', title: `Halte einen ${c.goal}-Tage-Streak`, desc: 'Schreibt euch jeden Tag beide mindestens eine Nachricht.' };
+        default: return { icon: '🏅', title: 'Challenge', desc: '' };
+      }
+    }
+    const left = (ends) => {
+      const h = Math.max(0, Math.floor((ends - Date.now()) / 36e5));
+      return h >= 48 ? `noch ${Math.floor(h / 24)} Tage` : h >= 1 ? `noch ${h} Std.` : 'endet bald';
+    };
+    async function renderChall() {
+      const head = $('challHead'), list = $('challList');
+      if (!relay.ready()) { head.replaceChildren(el('div', 'muted center', 'Für Challenges muss in den Einstellungen der Briefkasten-Server an sein.')); list.replaceChildren(); return; }
+      if (!lastChall) head.replaceChildren(el('div', 'muted center', 'Wird geladen…'));
+      await music.catalog().catch(() => {});
+      const d = (await reportProgress()) || lastChall;
+      if (!d) { head.replaceChildren(el('div', 'muted center', '⚠️ Challenges nicht erreichbar')); return; }
+      const wk = new Date(d.week + 'T00:00:00Z').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
+      const top = el('div', 'chall-top');
+      top.append(el('div', 'chall-week', `Woche vom ${wk} · ${left(d.ends)}`), el('div', 'chall-total', `🏅 ${d.total.done} geschafft · ${d.total.points} Punkte`));
+      head.replaceChildren(top);
+      list.replaceChildren(...d.list.map((c) => {
+        const t = challText(c);
+        const card = el('div', 'chall-card' + (c.done ? ' done' : ''));
+        const ic = el('div', 'chall-ic', c.done ? '✅' : t.icon);
+        const body = el('div', 'chall-body');
+        body.append(el('div', 'chall-title', t.title), el('div', 'chall-desc', t.desc));
+        const bar = el('div', 'chall-bar'); const fill = el('div'); fill.style.width = Math.round(c.progress / c.goal * 100) + '%'; bar.appendChild(fill);
+        const foot = el('div', 'chall-foot');
+        foot.append(el('span', '', c.done ? 'Geschafft! 🎉' : `${c.progress} / ${c.goal}`), el('span', '', `+${c.points} Punkte · ${c.finishers} geschafft`));
+        body.append(bar, foot);
+        if (c.type === 'reel_sound' && !c.done) {
+          const go = el('button', 'primary chall-go', '🎬 Jetzt posten');
+          go.type = 'button';
+          go.onclick = () => { show('viewReels'); reels.openFeed(); reels.post({ music: { id: c.music, start: 0 } }); };
+          const row = el('div', 'chall-actions'); row.append(go);
+          body.appendChild(row);
+        }
+        card.append(ic, body);
+        return card;
+      }));
+      // Belohnungen
+      const rw = $('challRewards');
+      rw.replaceChildren(el('div', 'rare-ach-title', '🎁 Belohnungen'));
+      tierList().forEach((r) => {
+        const got = d.total.done >= r.n;
+        const row = el('div', 'chall-reward' + (got ? ' got' : ''));
+        const prev = r.kind === 'frame' ? avatarEl(me.name, me.avatar, me.code, '', null, r.id) : bannerEl(BANNERS[r.id].name, r.id, true);
+        const txt = el('div', 'fmeta');
+        txt.append(el('div', 'fname', r.name), el('div', 'flast', got ? 'Freigeschaltet – unter Du → Personalisieren auswählen' : `ab ${r.n} geschafften Challenges (${d.total.done}/${r.n})`));
+        row.append(prev, txt, el('span', 'chall-lock', got ? '✅' : '🔒'));
+        rw.appendChild(row);
+      });
+    }
+    // Admin: Challenges ändern
+    async function admin(op, musicId = '') {
+      const ts = Date.now();
+      const sig = await relay.signText(`challadmin|${me.code}|${ts}|${op}|${musicId}`);
+      const r = await fetch(api('/v1/reels/challadmin'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: me.code, ts, sig, op, music: musicId }) });
+      if (!r.ok) { toast('⚠️ Hat nicht geklappt'); return; }
+      lastChall = await r.json();
+      toast(op === 'auto' ? 'Challenges wieder automatisch' : 'Challenges geändert');
+      renderChall();
+    }
+    $('challReroll').onclick = () => { if (confirm('Die Challenges dieser Woche neu auswürfeln? Schon geschaffte bleiben gezählt.')) admin('reroll'); };
+    $('challAuto').onclick = () => admin('auto');
+    $('challSound').onclick = () => {
+      const cur = lastChall && lastChall.list.find((c) => c.type === 'reel_sound');
+      music.pick({ current: cur ? { id: cur.music, start: 0 } : null, len: 15, onPick: (m) => { if (m) admin('sound', m.id); } });
+    };
+
+    return { open, reportProgress, nudge };
+  })();
+
   // ================= UpReels: öffentliche Kurzvideos für alle WhatsUp-Nutzer =================
   // Liegen auf dem Briefkasten-Server. Jede Aktion ist mit dem eigenen Schlüssel signiert.
   const reels = (() => {
@@ -4343,7 +4703,7 @@
       return wrap;
     }
 
-    return { openFeed, upload, pauseAll, playVisible, profileSection, closeSheet, canPost, sheetOpen: () => !!$('reelSheet') };
+    return { openFeed, upload, pauseAll, playVisible, profileSection, closeSheet, canPost, post, sheetOpen: () => !!$('reelSheet') };
   })();
 
   // ================= Anrufe (Audio & Video, direkt über WebRTC, Ende-zu-Ende verschlüsselt) =================
@@ -5527,11 +5887,12 @@
       if (!ready || !enabled()) return;
       const plat = document.documentElement.classList.contains('is-web') ? 'web' : 'windows';
       const ver = (typeof upd === 'object' && upd.version) || '';
-      const key = `${me.code}|${me.name}|${ver}|${new Date().toDateString()}`;
+      const lb = settings.leaderboard !== false, maxFire = stats.maxFire || 0;
+      const key = `${me.code}|${me.name}|${ver}|${lb}|${maxFire}|${new Date().toDateString()}`;
       if (store.load('seenReported', '') === key) return;
       try {
         const ts = Date.now();
-        await post(`/v1/seen/${me.code}`, { name: me.name, ver, plat, ts, sig: await sign(`seen|${me.code}|${ts}|${me.name}`) });
+        await post(`/v1/seen/${me.code}`, { name: me.name, ver, plat, lb, maxFire, ts, sig: await sign(`seen|${me.code}|${ts}|${me.name}`) });
         store.save('seenReported', key);
       } catch (e) { console.warn('Nutzer melden:', e); }
     }
@@ -5585,6 +5946,7 @@
       saveNames();
       reportAchievements();
       setTimeout(reportSeen, 3000); // nach dem Start, wenn die Version bekannt ist
+      setTimeout(() => games.reportProgress(), 6000); // Challenge-Fortschritt (Nachrichten, Streak)
     }
 
     // Abholen: beim Start, jede Minute, beim Zurückkehren in die App und wenn das Netz wieder da ist

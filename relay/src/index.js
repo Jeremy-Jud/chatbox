@@ -59,6 +59,8 @@ export default {
     // Wie viele Personen auf der Welt besitzen welchen Erfolg? (öffentlich, nur Zahlen)
     if (parts[1] === 'achstats') return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/counts');
     // Welche Erfolge hat dieser Code? (für das Profil aus UpReels, nur die IDs)
+    // Ranglisten (öffentlich): ?type=ach|fire|chall&me=CODE&friends=CODE,CODE…
+    if (parts[1] === 'leaderboard') return env.ACHSTATS.get(env.ACHSTATS.idFromName('global')).fetch('https://stats/leaderboard' + url.search);
     // Admin: Ist dieser Code Admin? (öffentlich, nur ja/nein)
     if (parts[1] === 'isadmin') return json({ admin: admins(env).includes(String(parts[2] || '').toUpperCase()) });
     // Admin: alle Nutzer (Name, Code, zuletzt aktiv) – nur mit Signatur eines Admin-Codes
@@ -192,7 +194,8 @@ export class Mailbox {
     const name = textOf(b.name, 24);
     if (!name || !(await this.ownerOk('seen', code, b.ts, b.sig, `|${name}`))) return fail(403, 'forbidden');
     const stats = this.env.ACHSTATS.get(this.env.ACHSTATS.idFromName('global'));
-    await stats.fetch('https://stats/seen', { method: 'POST', body: JSON.stringify({ code, name, ver: textOf(b.ver, 20), plat: b.plat === 'web' ? 'web' : 'windows' }) });
+    await stats.fetch('https://stats/seen', { method: 'POST', body: JSON.stringify({ code, name, ver: textOf(b.ver, 20), plat: b.plat === 'web' ? 'web' : 'windows',
+      maxfire: Math.max(0, Math.min(100000, Math.floor(Number(b.maxFire) || 0))), lb: b.lb === false ? 0 : 1 }) });
     return json({ ok: true });
   }
 
@@ -313,12 +316,57 @@ export class Mailbox {
 // ---------- Durable Object: weltweite Erfolgs-Statistik (eine einzige Instanz) ----------
 // Speichert pro Code nur, welche Erfolge freigeschaltet sind, und zählt sie zusammen.
 export class AchStats {
-  constructor(state) {
+  constructor(state, env) {
+    this.env = env;
     this.sql = state.storage.sql;
     this.sql.exec('CREATE TABLE IF NOT EXISTS owned (code TEXT, ach TEXT, PRIMARY KEY (code, ach))');
     // Nutzerliste für den Admin: wer WhatsUp nutzt (gemeldet von der App, signiert)
     this.sql.exec('CREATE TABLE IF NOT EXISTS users (code TEXT PRIMARY KEY, name TEXT, ver TEXT, plat TEXT, first INTEGER, last INTEGER)');
+    // Ranglisten: längster Streak, ob man in Ranglisten erscheinen will (lb = 1)
+    for (const col of ['maxfire INTEGER DEFAULT 0', 'lb INTEGER DEFAULT 1']) { try { this.sql.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch { /* gibt es schon */ } }
     this.cache = null; // { at, body }
+    this.lbCache = {};
+  }
+  // Rangliste: die besten 50, dazu der eigene Platz und (optional) die Freunde
+  async leaderboard(url) {
+    const type = ['ach', 'fire', 'chall'].includes(url.searchParams.get('type')) ? url.searchParams.get('type') : 'ach';
+    const me = CODE_RE.test(url.searchParams.get('me') || '') ? url.searchParams.get('me') : null;
+    const friends = String(url.searchParams.get('friends') || '').toUpperCase().split(',').filter((c) => CODE_RE.test(c)).slice(0, 300);
+    let all = this.lbCache[type];
+    if (!all || Date.now() - all.at > 60000) {
+      const users = this.sql.exec('SELECT code, name, maxfire, lb FROM users').toArray();
+      let value;
+      if (type === 'ach') {
+        const n = {};
+        for (const r of this.sql.exec('SELECT code, COUNT(*) AS n FROM owned GROUP BY code').toArray()) n[r.code] = r.n;
+        value = (u) => n[u.code] || 0;
+      } else if (type === 'fire') value = (u) => u.maxfire || 0;
+      else {
+        const res = await this.env.REELS.get(this.env.REELS.idFromName('global')).fetch('https://reels/v1/reels/challcounts');
+        const c = (await res.json()).counts || {};
+        value = (u) => (c[u.code] ? c[u.code].points : 0);
+        all = { extra: c };
+      }
+      const list = users.map((u) => ({ code: u.code, name: u.name, value: value(u), lb: u.lb !== 0 }))
+        .filter((u) => u.value > 0)
+        .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+      let rank = 0, last = null;
+      list.forEach((u, i) => { if (u.value !== last) { rank = i + 1; last = u.value; } u.rank = rank; });
+      all = { at: Date.now(), list, extra: all && all.extra };
+      this.lbCache[type] = all;
+    }
+    const pub = (u) => ({ rank: u.rank, code: u.code, name: u.name, value: u.value, ...(type === 'chall' && all.extra && all.extra[u.code] ? { done: all.extra[u.code].done } : {}) });
+    const visible = all.list.filter((u) => u.lb || u.code === me);
+    // Plätze nur unter den sichtbaren neu zählen (Ausgeblendete nehmen keinen Platz weg)
+    let rank = 0, last = null;
+    const ranked = visible.map((u, i) => { if (u.value !== last) { rank = i + 1; last = u.value; } return { ...u, rank }; });
+    const meRow = me ? ranked.find((u) => u.code === me) : null;
+    return json({
+      type, total: ranked.length,
+      top: ranked.slice(0, 50).map(pub),
+      me: meRow ? pub(meRow) : null,
+      friends: friends.length ? ranked.filter((u) => friends.includes(u.code) || u.code === me).map(pub) : [],
+    });
   }
 
   async fetch(req) {
@@ -331,12 +379,17 @@ export class AchStats {
       this.cache = null;
       return json({ ok: true });
     }
+    if (path === '/leaderboard') return this.leaderboard(new URL(req.url));
     if (path === '/seen') { // nur intern vom Briefkasten (Signatur dort geprüft)
-      const { code, name, ver, plat } = await req.json();
+      const b = await req.json();
+      const { code, name, ver, plat } = b;
       if (!CODE_RE.test(code)) return fail(400, 'bad code');
       const now = Date.now();
-      this.sql.exec(`INSERT INTO users (code, name, ver, plat, first, last) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(code) DO UPDATE SET name = excluded.name, ver = excluded.ver, plat = excluded.plat, last = excluded.last`, code, name, ver, plat, now, now);
+      const { maxfire = 0, lb = 1 } = b;
+      this.sql.exec(`INSERT INTO users (code, name, ver, plat, first, last, maxfire, lb) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET name = excluded.name, ver = excluded.ver, plat = excluded.plat, last = excluded.last,
+          maxfire = MAX(COALESCE(users.maxfire, 0), excluded.maxfire), lb = excluded.lb`, code, name, ver, plat, now, now, maxfire, lb ? 1 : 0);
+      this.lbCache = {};
       return json({ ok: true });
     }
     if (path === '/users') { // nur intern, Admin-Prüfung im Worker
@@ -373,7 +426,36 @@ export class AchStats {
 // Jede schreibende Anfrage ist mit dem Schlüssel signiert, der beim Briefkasten des Codes hinterlegt ist.
 const REEL_ID_RE = /^[a-z0-9]{16,40}$/;
 const MUSIC_ID_RE = /^[a-z0-9-]{1,60}$/;   // Track-ID aus web/music/tracks.json
-const REEL_MAX_PHOTOS = 20;                // Foto-Beitrag: höchstens 20 Bilder
+const REEL_MAX_PHOTOS = 20;
+// Wochen-Challenges: Musik-IDs für „Poste ein Reel mit diesem Sound“ (aus web/music/tracks.json)
+const CHALL_TRACKS = ["monkeys-spinning-monkeys","carefree","wallpaper","happy-alley","jaunty-gumption","upbeat-forever","off-to-osaka","sneaky-snitch","fluffing-a-duck","investigations","pixel-peeker-polka-faster","run-amok","spazzmatica-polka","merry-go","breaktime","lobby-time","easy-lemon","cool-vibes","dreamer","chill-wave","bossa-antigua","dream-culture","funkorama","funky-chunk","werq","hep-cats","local-forecast-elevator","kool-kats","rollin-at-5","itty-bitty-8-bit","bit-shift","electrodoodle","digital-lemonade","hyperfun","blip-stream","five-armies","heroic-age","volatile-reaction","hitman","movement-proposition","cut-and-run","achilles","spy-glass","covert-affair","crusade","desert-city"];
+// Weitere Challenge-Arten (eine Woche hat: 1 Sound-Challenge + 2 davon)
+const CHALL_POOL = [
+  { type: 'reel_post', goal: 2, points: 20 },
+  { type: 'reel_likes', goal: 5, points: 25 },
+  { type: 'comments', goal: 5, points: 15 },
+  { type: 'messages', goal: 50, points: 15 },
+  { type: 'messages', goal: 150, points: 25 },
+  { type: 'fire', goal: 3, points: 20 },
+  { type: 'fire', goal: 7, points: 30 },
+];
+const CHALL_TYPES = ['reel_sound', 'reel_post', 'reel_likes', 'comments', 'messages', 'fire'];
+// Woche beginnt Montag 00:00 UTC
+const weekStart = (t = Date.now()) => { const d = new Date(t); const day = (d.getUTCDay() + 6) % 7; return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day); };
+const weekId = (t) => new Date(weekStart(t)).toISOString().slice(0, 10);
+// Zufall mit festem Startwert: jede Woche dieselbe Auswahl für alle
+const seeded = (str) => { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; }; };
+function autoChallenges(week, salt = '') {
+  const rnd = seeded(week + salt);
+  const music = CHALL_TRACKS[Math.floor(rnd() * CHALL_TRACKS.length)];
+  const pool = CHALL_POOL.slice();
+  const picks = [];
+  while (picks.length < 2 && pool.length) {
+    const p = pool.splice(Math.floor(rnd() * pool.length), 1)[0];
+    if (!picks.some((x) => x.type === p.type)) picks.push(p);
+  }
+  return [{ id: 'c1', type: 'reel_sound', goal: 1, points: 30, music }, ...picks.map((p, i) => ({ id: 'c' + (i + 2), ...p }))];
+}                // Foto-Beitrag: höchstens 20 Bilder
 const REEL_MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const REEL_MAX_BYTES = 26 * 1024 * 1024;     // ein Video (App begrenzt auf 60 s, ~10 MB)
 const REELS_TOTAL_MAX = 4.5 * 1024 ** 3;     // Speichergrenze der kostenlosen Stufe (5 GB) nicht reißen
@@ -406,7 +488,10 @@ export class Reels {
       CREATE TABLE IF NOT EXISTS views (reel TEXT, code TEXT, name TEXT, ts INTEGER, PRIMARY KEY (reel, code));
       CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, reel TEXT, code TEXT, name TEXT, text TEXT, ts INTEGER);
       CREATE INDEX IF NOT EXISTS comments_reel ON comments (reel, id);
-      CREATE TABLE IF NOT EXISTS reports (reel TEXT, code TEXT, reason TEXT, ts INTEGER, PRIMARY KEY (reel, code));`);
+      CREATE TABLE IF NOT EXISTS reports (reel TEXT, code TEXT, reason TEXT, ts INTEGER, PRIMARY KEY (reel, code));
+      CREATE TABLE IF NOT EXISTS challenges (week TEXT PRIMARY KEY, list TEXT, custom INTEGER DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS chall_done (week TEXT, cid TEXT, code TEXT, points INTEGER, ts INTEGER, PRIMARY KEY (week, cid, code));
+      CREATE TABLE IF NOT EXISTS chall_progress (week TEXT, code TEXT, sent INTEGER, fire INTEGER, PRIMARY KEY (week, code));`);
     // Musik (aus der festen Auswahl in der App): welcher Track, ab welcher Sekunde
     // kind: 'video' oder 'photos' (Foto-Beitrag zum Wischen); photos = Anzahl; music_vol = Lautstärke der Musik (0..1)
     for (const col of ['music_id TEXT', 'music_start REAL', "kind TEXT DEFAULT 'video'", 'photos INTEGER DEFAULT 0', 'music_vol REAL']) { try { this.sql.exec(`ALTER TABLE reels ADD COLUMN ${col}`); } catch { /* gibt es schon */ } }
@@ -430,6 +515,39 @@ export class Reels {
       kind: r.kind || 'video', photos: r.photos || 0,
       liked: me ? !!this.one('SELECT 1 AS x FROM likes WHERE reel = ? AND code = ?', r.id, me) : false,
     };
+  }
+  // Challenges dieser Woche (automatisch, außer der Admin hat sie geändert)
+  weekChallenges(week) {
+    const r = this.one('SELECT list, custom FROM challenges WHERE week = ?', week);
+    if (r) return { list: JSON.parse(r.list), custom: !!r.custom };
+    const list = autoChallenges(week);
+    this.sql.exec('INSERT OR IGNORE INTO challenges (week, list, custom) VALUES (?, ?, 0)', week, JSON.stringify(list));
+    return { list, custom: false };
+  }
+  // Fortschritt eines Nutzers für eine Challenge (vom Server geprüft, Nachrichten/Streak von der App gemeldet)
+  progress(c, code, week) {
+    const ws = Date.parse(week + 'T00:00:00Z');
+    if (c.type === 'reel_sound') return this.one('SELECT COUNT(*) AS n FROM reels WHERE author = ? AND ts >= ? AND music_id = ?', code, ws, c.music).n;
+    if (c.type === 'reel_post') return this.one('SELECT COUNT(*) AS n FROM reels WHERE author = ? AND ts >= ?', code, ws).n;
+    if (c.type === 'reel_likes') return this.one('SELECT COALESCE(SUM(likes), 0) AS n FROM reels WHERE author = ? AND ts >= ?', code, ws).n;
+    if (c.type === 'comments') return this.one('SELECT COUNT(*) AS n FROM comments WHERE code = ? AND ts >= ?', code, ws).n;
+    const p = this.one('SELECT sent, fire FROM chall_progress WHERE week = ? AND code = ?', week, code);
+    if (c.type === 'messages') return p ? p.sent : 0;
+    if (c.type === 'fire') return p ? p.fire : 0;
+    return 0;
+  }
+  challengesFor(code) {
+    const week = weekId();
+    const { list, custom } = this.weekChallenges(week);
+    const out = list.map((c) => {
+      const prog = code ? this.progress(c, code, week) : 0;
+      const done = !!code && prog >= c.goal;
+      if (done) this.sql.exec('INSERT OR IGNORE INTO chall_done (week, cid, code, points, ts) VALUES (?, ?, ?, ?, ?)', week, c.id, code, c.points, Date.now());
+      const n = this.one('SELECT COUNT(*) AS n FROM chall_done WHERE week = ? AND cid = ?', week, c.id).n;
+      return { ...c, progress: Math.min(prog, c.goal), done, finishers: n };
+    });
+    const tot = code ? this.one('SELECT COUNT(*) AS done, COALESCE(SUM(points), 0) AS points FROM chall_done WHERE code = ?', code) : { done: 0, points: 0 };
+    return { week, ends: weekStart() + 7 * 86400000, custom, list: out, total: tot };
   }
   // Ältere Apps (ohne ?v=2) kennen keine Foto-Beiträge – denen nur Videos zeigen
   kindSql(url) { return Number(url.searchParams.get('v')) >= 2 ? '' : " AND COALESCE(kind, 'video') = 'video'"; }
@@ -467,6 +585,16 @@ export class Reels {
           const r = this.one('SELECT * FROM reels WHERE id = ? AND hidden = 0', arg);
           return r ? json({ reel: this.pub(r, me) }) : fail(404, 'gone');
         }
+        if (action === 'challenges') return json(this.challengesFor(me));
+        if (action === 'challstats' && CODE_RE.test(arg || '')) { // Abzeichen im Profil
+          const t = this.one('SELECT COUNT(*) AS done, COALESCE(SUM(points), 0) AS points FROM chall_done WHERE code = ?', arg);
+          return json(t);
+        }
+        if (action === 'challcounts') { // intern für die Rangliste
+          const counts = {};
+          for (const r of this.sql.exec('SELECT code, COUNT(*) AS done, SUM(points) AS points FROM chall_done GROUP BY code').toArray()) counts[r.code] = { done: r.done, points: r.points };
+          return json({ counts });
+        }
         if (action === 'comments' && REEL_ID_RE.test(arg || '')) {
           const rows = this.sql.exec('SELECT id, code, name, text, ts FROM comments WHERE reel = ? ORDER BY id LIMIT 300', arg).toArray();
           return json({ comments: rows });
@@ -476,6 +604,32 @@ export class Reels {
       if (req.method !== 'POST') return fail(405, 'method');
       if (action === 'upload') return this.upload(req);
       const b = await req.json();
+      // Fortschritt von der App: gesendete Nachrichten diese Woche, aktueller längster Streak
+      if (action === 'progress') {
+        const week = weekId();
+        const sent = Math.max(0, Math.min(100000, Math.floor(Number(b.sent) || 0)));
+        const fire = Math.max(0, Math.min(10000, Math.floor(Number(b.fire) || 0)));
+        const code = await this.signed(b, 'challprogress', `|${week}|${sent}|${fire}`);
+        if (!code) return fail(403, 'forbidden');
+        this.sql.exec(`INSERT INTO chall_progress (week, code, sent, fire) VALUES (?, ?, ?, ?)
+          ON CONFLICT(week, code) DO UPDATE SET sent = MAX(sent, excluded.sent), fire = MAX(fire, excluded.fire)`, week, code, sent, fire);
+        return json(this.challengesFor(code));
+      }
+      // Admin: Challenges dieser Woche ändern (neu würfeln, Sound festlegen, zurück auf automatisch)
+      if (action === 'challadmin') {
+        const op = String(b.op || '');
+        const music = String(b.music || '');
+        const code = await this.signed(b, 'challadmin', `|${op}|${music}`);
+        if (!code || !admins(this.env).includes(code)) return fail(403, 'forbidden');
+        const week = weekId();
+        let list = this.weekChallenges(week).list;
+        if (op === 'auto') { this.sql.exec('DELETE FROM challenges WHERE week = ?', week); return json(this.challengesFor(code)); }
+        if (op === 'reroll') list = autoChallenges(week, String(Date.now()));
+        else if (op === 'sound' && MUSIC_ID_RE.test(music)) list = list.map((c) => (c.type === 'reel_sound' ? { ...c, music } : c));
+        else return fail(400, 'bad op');
+        this.sql.exec('INSERT OR REPLACE INTO challenges (week, list, custom) VALUES (?, ?, 1)', week, JSON.stringify(list));
+        return json(this.challengesFor(code));
+      }
       const id = String(b.id || '');
       if (!REEL_ID_RE.test(id)) return fail(400, 'bad id');
       const reel = this.one('SELECT * FROM reels WHERE id = ?', id);

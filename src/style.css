@@ -913,3 +913,85 @@ button.sender:hover { background: var(--soft); }
 .sender .avatar.sender-av { width: 22px; height: 22px; font-size: 9px; flex-shrink: 0; }
 .sender .avatar.sender-av .frame { display: none; } /* Rahmen ist bei der kleinen Größe zu unruhig */
 .sender-name { font-size: 11.5px; font-weight: 600; }
+
+/* ================= Umfragen ================= */
+.msg.has-poll { min-width: 240px; max-width: 86%; }
+.poll { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 4px; white-space: normal; }
+.poll-q { font-weight: 700; font-size: 14.5px; }
+.poll-hint { font-size: 11.5px; opacity: .75; margin-top: -3px; }
+.poll-opt { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; overflow: hidden; text-align: left; cursor: pointer;
+  background: color-mix(in srgb, currentColor 10%, transparent); color: inherit; font-size: 13.5px; }
+.poll-opt:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+.poll-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: color-mix(in srgb, currentColor 18%, transparent); transition: width .35s ease; }
+.poll-bar.top { background: color-mix(in srgb, currentColor 28%, transparent); }
+.poll-check { position: relative; width: 18px; height: 18px; flex-shrink: 0; border: 2px solid currentColor; display: grid; place-items: center; font-size: 11px; font-weight: 800; opacity: .8; }
+.poll-check.single { border-radius: 50%; }
+.poll-check.multi { border-radius: 5px; }
+.poll-opt.on .poll-check { background: currentColor; opacity: 1; }
+.poll-opt.on .poll-check { color: inherit; }
+.msg.me .poll-opt.on .poll-check { color: var(--on-accent); }
+.poll-opt.on .poll-check::after { content: '✓'; position: absolute; color: var(--bg); }
+.msg.me .poll-opt.on .poll-check::after { color: var(--accent); }
+.poll-opt.on .poll-check { font-size: 0; }
+.poll-text { position: relative; flex: 1; min-width: 0; word-wrap: break-word; }
+.poll-n { position: relative; font-size: 11.5px; font-weight: 600; opacity: .85; white-space: nowrap; }
+.poll-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11.5px; opacity: .85; padding-top: 2px; }
+.poll-who { color: inherit; text-decoration: underline; font-size: 11.5px; cursor: pointer; }
+.poll-in { width: 100%; box-sizing: border-box; }
+.poll-in-list { display: flex; flex-direction: column; gap: 6px; }
+.poll-in-row { display: flex; gap: 6px; align-items: center; }
+.poll-more { align-self: flex-start; }
+#pollBtn svg { stroke-width: 2.2; }
+.msg.me.has-poll { flex-wrap: wrap; }
+.msg.me.has-poll .poll { flex-basis: 100%; }
+.msg.me.has-poll .meta { margin-left: auto; }
+
+/* ================= Erfolge · Rangliste · Challenges ================= */
+.ach-tabs { margin: 4px 14px 10px; flex-shrink: 0; }
+.ach-tabs button { font-size: 12.5px; }
+#viewAchievements[data-tab="lb"] > .ach-summary, #viewAchievements[data-tab="lb"] > .redeem, #viewAchievements[data-tab="lb"] > .redeem-msg, #viewAchievements[data-tab="lb"] > .ach-list,
+#viewAchievements[data-tab="chall"] > .ach-summary, #viewAchievements[data-tab="chall"] > .redeem, #viewAchievements[data-tab="chall"] > .redeem-msg, #viewAchievements[data-tab="chall"] > .ach-list { display: none; }
+.ach-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.setting-sub { display: block; font-size: 11px; margin-top: 2px; }
+/* Rangliste */
+.lb-types { flex-shrink: 0; }
+.lb-types button { font-size: 12px; }
+.lb-scope { display: flex; gap: 6px; flex-shrink: 0; }
+.lb-scope button { border-radius: 14px; padding: 5px 12px; background: var(--soft); font-size: 12.5px; cursor: pointer; }
+.lb-scope button.active { background: var(--fg); color: var(--bg); font-weight: 600; }
+.lb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lb-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 12px; cursor: pointer; }
+.lb-row:hover { background: var(--soft); }
+.lb-row.me { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.lb-row .avatar { width: 36px; height: 36px; font-size: 13px; flex-shrink: 0; }
+.lb-rank { width: 32px; text-align: center; font-weight: 700; font-size: 13px; color: var(--muted); flex-shrink: 0; }
+.lb-rank.medal { font-size: 22px; }
+.lb-val { font-weight: 700; font-size: 13px; white-space: nowrap; }
+.lb-me { border-top: 1px solid var(--line); padding-top: 6px; }
+.lb-hint { font-size: 12px; color: var(--muted); padding: 6px; }
+.lb-list .center { text-align: center; padding: 18px 0; }
+/* Challenges */
+.chall-top { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px; }
+.chall-week { font-size: 12px; color: var(--muted); }
+.chall-total { font-weight: 700; font-size: 15px; }
+.chall-list { display: flex; flex-direction: column; gap: 8px; }
+.chall-card { display: flex; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+.chall-card.done { border-color: color-mix(in srgb, var(--online) 55%, transparent); background: color-mix(in srgb, var(--online) 8%, var(--bg)); }
+.chall-ic { font-size: 26px; width: 34px; text-align: center; flex-shrink: 0; }
+.chall-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.chall-title { font-weight: 700; font-size: 14px; }
+.chall-desc { font-size: 12px; color: var(--muted); }
+.chall-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.chall-bar > div { height: 100%; background: var(--accent); border-radius: 3px; transition: width .4s; }
+.chall-card.done .chall-bar > div { background: var(--online); }
+.chall-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.chall-actions { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
+.chall-go { padding: 7px 14px; border-radius: 18px; font-size: 13px; }
+.chall-rewards { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.chall-reward { display: flex; align-items: center; gap: 12px; padding: 8px 6px; border-radius: 12px; opacity: .65; }
+.chall-reward.got { opacity: 1; }
+.chall-reward .avatar { width: 40px; height: 40px; font-size: 14px; flex-shrink: 0; }
+.chall-reward .banner-pill { flex-shrink: 0; max-width: 110px; }
+.chall-lock { font-size: 16px; }
+.chall-admin { border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.chall-admin-btns { display: flex; gap: 16px; flex-wrap: wrap; }

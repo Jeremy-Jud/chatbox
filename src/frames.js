@@ -160,6 +160,30 @@
           spark(100, 16, 0.55, '#fff') + spark(18, 100, 0.5, '#fff');
       })(),
     },
+    // Belohnungen für Wochen-Challenges (nicht per Code, sondern durch geschaffte Challenges)
+    trophy: {
+      name: 'Pokal', locked: true, challenge: 6,
+      svg: `<circle cx="60" cy="60" r="44" fill="none" stroke="#f5b301" stroke-width="3"/>
+        <circle cx="60" cy="60" r="47.5" fill="none" stroke="#ffe08a" stroke-width="1.2" stroke-dasharray="3 4"/>
+        <g transform="translate(60 12)">
+          <path d="M-11-9h22v7c0 8-5 13-11 13s-11-5-11-13z" fill="#ffc531" stroke="#a87400" stroke-width="1.6"/>
+          <path d="M-11-6c-7 0-8 9 1 10M11-6c7 0 8 9-1 10" fill="none" stroke="#a87400" stroke-width="1.8"/>
+          <path d="M-3 11h6v4h4v4h-14v-4h4z" fill="#ffc531" stroke="#a87400" stroke-width="1.4"/>
+          <path d="M-5-5l3 6" stroke="#fff6c9" stroke-width="2" stroke-linecap="round"/>
+        </g>` + spark(18, 22, 0.55, '#ffd84d') + spark(102, 24, 0.45, '#ffd84d') + spark(100, 100, 0.5, '#ffd84d'),
+    },
+    legend: {
+      name: 'Legende', locked: true, challenge: 10,
+      svg: (() => {
+        const ray = (deg) => { const [x1, y1] = onRing(deg, 46); const [x2, y2] = onRing(deg, 54); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c084fc" stroke-width="2.4" stroke-linecap="round"/>`; };
+        return `<defs><linearGradient id="lgd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f472b6"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#facc15"/></linearGradient></defs>
+          <circle cx="60" cy="60" r="44" fill="none" stroke="url(#lgd)" stroke-width="4"/>` +
+          [-60, -30, 30, 60, 120, 150, 210, 240, 300, 330].map(ray).join('') +
+          `<path d="M42 21 47 6 54 15 60 3 66 15 73 6 78 21Z" fill="#facc15" stroke="#a16207" stroke-width="1.6" stroke-linejoin="round"/>
+          <circle cx="60" cy="14" r="2.4" fill="#f472b6"/><circle cx="48" cy="16" r="1.8" fill="#a855f7"/><circle cx="72" cy="16" r="1.8" fill="#a855f7"/>` +
+          spark(16, 98, 0.55, '#f0abfc') + spark(104, 98, 0.5, '#fde68a');
+      })(),
+    },
   };
 
   // Banner für den Profil-Status (ebenfalls nur mit Code)
@@ -169,6 +193,9 @@
     neon: { name: 'Neon', bg: 'linear-gradient(135deg, #f72585, #7209b7 55%, #3a0ca3)' },
     gold: { name: 'Gold', bg: 'linear-gradient(135deg, #a87b12, #ffd700 50%, #b8860b)' },
     galaxy: { name: 'Galaxie', bg: 'radial-gradient(circle at 20% 30%, rgba(255,255,255,.35) 0 1px, transparent 2px), radial-gradient(circle at 75% 60%, rgba(255,255,255,.3) 0 1px, transparent 2px), linear-gradient(135deg, #0f0c29, #302b63 55%, #6d28d9)' },
+    // Belohnungen für Wochen-Challenges
+    champion: { name: 'Champion', challenge: 3, bg: 'linear-gradient(135deg, #b8860b, #ffd700 45%, #ff8c00)' },
+    legend: { name: 'Legende', challenge: 10, bg: 'linear-gradient(120deg, #f472b6, #a855f7 50%, #facc15)' },
   };
 
   window.WHATSUP_FRAMES = FRAMES;

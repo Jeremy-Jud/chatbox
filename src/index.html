@@ -125,6 +125,7 @@
       <button type="button" id="emojiBtn" class="ic" title="Emojis"><svg><use href="#i-smile"/></svg></button>
       <button type="button" id="attachBtn" class="ic" title="Bild oder GIF"><svg><use href="#i-clip"/></svg></button>
       <button type="button" id="videoBtn" class="ic" title="Video aufnehmen"><svg><use href="#i-video"/></svg></button>
+      <button type="button" id="pollBtn" class="ic hidden" title="Umfrage erstellen"><svg viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-6"/></svg></button>
       <input id="msgInput" placeholder="Nachricht" autocomplete="off" maxlength="4000">
       <button type="button" id="micBtn" class="send mic" title="Sprachnachricht aufnehmen"><svg><use href="#i-mic"/></svg></button>
       <button class="send" id="sendBtn" type="submit" title="Senden"><svg><use href="#i-send"/></svg></button>
@@ -167,6 +168,9 @@
           <button id="profCopy" class="ic small-ic" title="Kopieren"><svg><use href="#i-copy"/></svg></button></span>
       </div>
       <button id="profSave" class="primary full hidden">Speichern</button>
+
+      <h2>Ranglisten</h2>
+      <label class="setting"><span>In Ranglisten zeigen<span class="muted setting-sub">Name, Code, Erfolge, längster Streak und Challenge-Punkte sind für alle sichtbar</span></span><input type="checkbox" class="switch" id="setLeaderboard"></label>
 
       <h2>Darstellung</h2>
       <div class="segmented" id="themeSeg">
@@ -219,6 +223,39 @@
 
   <!-- Erfolge -->
   <section id="viewAchievements" class="view hidden">
+    <div class="segmented ach-tabs" id="achTabs">
+      <button data-tab="ach" class="active">🏆 Erfolge</button>
+      <button data-tab="lb">📊 Rangliste</button>
+      <button data-tab="chall">🏅 Challenges</button>
+    </div>
+    <!-- Rangliste -->
+    <div id="lbPanel" class="ach-panel hidden">
+      <div class="segmented lb-types" id="lbTypes">
+        <button data-type="ach" class="active">🏆 Erfolge</button>
+        <button data-type="fire">🔥 Streak</button>
+        <button data-type="chall">🏅 Challenges</button>
+      </div>
+      <div class="lb-scope" id="lbScope">
+        <button data-scope="all" class="active">Alle</button>
+        <button data-scope="friends">Freunde</button>
+      </div>
+      <ul id="lbList" class="lb-list"></ul>
+      <div id="lbMe" class="lb-me hidden"></div>
+    </div>
+    <!-- Wochen-Challenges -->
+    <div id="challPanel" class="ach-panel hidden">
+      <div id="challHead" class="chall-head"></div>
+      <div id="challList" class="chall-list"></div>
+      <div id="challRewards" class="chall-rewards"></div>
+      <div id="challAdmin" class="chall-admin hidden">
+        <div class="rare-ach-title">🛡️ Admin</div>
+        <div class="chall-admin-btns">
+          <button type="button" id="challSound" class="link">Sound ändern</button>
+          <button type="button" id="challReroll" class="link">Neu würfeln</button>
+          <button type="button" id="challAuto" class="link muted-link">Automatisch</button>
+        </div>
+      </div>
+    </div>
     <div class="ach-summary">
       <span><span id="achCount">0</span> / <span id="achTotal">0</span></span>
       <div class="bar"><div id="achBar"></div></div>
