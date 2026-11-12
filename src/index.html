@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob:; media-src 'self' data: blob: https:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:">
   <title>WhatsUp</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -328,7 +328,8 @@
       <video id="vidSrc" class="vid-src" playsinline muted autoplay></video>
       <canvas id="vidCanvas" class="vid-canvas"></canvas>
       <video id="vidPreview" class="vid-preview" playsinline loop controls></video>
-      <div class="vidrec-loading">Kamera wird gestartet…</div>
+      <div id="vidPhotos" class="vid-photos"></div>
+      <div class="vidrec-loading">Wird geladen…</div>
     </div>
     <div class="vidrec-top">
       <button type="button" id="vidClose" class="vid-ic" title="Schließen"><svg><use href="#i-x"/></svg></button>
@@ -348,10 +349,9 @@
       <label class="vid-mix-row"><span>Start</span><input type="range" id="vidTrimStart" min="0" max="60" step="0.1" value="0"></label>
       <label class="vid-mix-row"><span>Ende</span><input type="range" id="vidTrimEnd" min="0" max="60" step="0.1" value="60"></label>
     </div>
-    <!-- Fotos: Dauer bzw. Slideshow -->
+    <!-- Fotos: Foto-Beitrag zum Wischen -->
     <div id="vidSlides" class="vid-edit vid-slides">
       <div id="vidSlideLabel" class="vid-edit-label"></div>
-      <label class="vid-mix-row"><span id="vidSlideName">Pro Bild</span><input type="range" id="vidSlideSecs" min="1" max="6" step="0.5" value="3"></label>
     </div>
     <div id="vidMix" class="vid-mix">
       <label id="vidMixMusicRow" class="vid-mix-row"><span>🎵 Musik</span><input type="range" id="vidMixMusic" min="0" max="100" value="60"></label>

@@ -2881,6 +2881,53 @@
     return { catalog, track, credit, ctx, buffer, pick, closePicker, isOpen: () => !!$('musicSheet'), fmt };
   })();
 
+  // ================= Foto-Karussell (Foto-Beiträge in UpReels, wie bei TikTok) =================
+  // Fotos nebeneinander zum Wischen, „1 / 6“ oben, Punkte unten, Pfeile für Maus/PC.
+  // lazy: Bilder erst mit el.load() laden (im Feed, sobald der Beitrag in die Nähe kommt)
+  function photoCarousel(urls, { lazy = false } = {}) {
+    const n = urls.length;
+    const box = el('div', 'pc' + (n > 1 ? ' multi' : ''));
+    const track = el('div', 'pc-track');
+    const imgs = urls.map((u) => {
+      const slide = el('div', 'pc-slide');
+      const bg = el('div', 'pc-bg');
+      const img = document.createElement('img');
+      img.className = 'pc-img'; img.alt = 'Foto'; img.draggable = false; img.decoding = 'async';
+      img.onload = () => { bg.style.backgroundImage = `url("${img.src}")`; };
+      if (lazy) img.dataset.src = u; else img.src = u;
+      slide.append(bg, img);
+      track.appendChild(slide);
+      return img;
+    });
+    box.appendChild(track);
+    let idx = 0;
+    if (n > 1) {
+      const count = el('div', 'pc-count', `1 / ${n}`);
+      const dots = el('div', 'pc-dots');
+      const dotEls = urls.map((_, i) => { const d = el('i', i === 0 ? 'on' : ''); dots.appendChild(d); return d; });
+      const prev = el('button', 'pc-nav prev', '‹'), next = el('button', 'pc-nav next', '›');
+      prev.type = next.type = 'button'; prev.title = 'Vorheriges Foto'; next.title = 'Nächstes Foto';
+      const upd = () => {
+        const w = track.clientWidth || 1;
+        const i = Math.max(0, Math.min(n - 1, Math.round(track.scrollLeft / w)));
+        idx = i;
+        count.textContent = `${i + 1} / ${n}`;
+        dotEls.forEach((d, k) => d.classList.toggle('on', k === i));
+        prev.classList.toggle('off', i === 0);
+        next.classList.toggle('off', i === n - 1);
+      };
+      track.addEventListener('scroll', upd, { passive: true });
+      box.go = (i) => track.scrollTo({ left: Math.max(0, Math.min(n - 1, i)) * track.clientWidth, behavior: 'smooth' });
+      prev.onclick = (e) => { e.stopPropagation(); box.go(idx - 1); };
+      next.onclick = (e) => { e.stopPropagation(); box.go(idx + 1); };
+      box.append(count, dots, prev, next);
+      setTimeout(upd, 0);
+    }
+    box.load = () => imgs.forEach((img) => { if (!img.src && img.dataset.src) img.src = img.dataset.src; });
+    box.track = track;
+    return box;
+  }
+
   // ================= Videos aufnehmen und abspielen =================
   // Aufgenommen wird nicht direkt die Kamera, sondern eine Zeichenfläche, auf die das Kamerabild gemalt wird.
   // So kann man WÄHREND der Aufnahme die Kamera drehen: Es wechselt nur die Quelle, die Aufnahme läuft weiter.
@@ -2917,7 +2964,7 @@
     }
     function stopMusic() { if (mix && mix.node) { try { mix.node.stop(); } catch {} mix.node = null; } }
     // Musik ab Sekunde „at“ des Videos starten (beim Aufnehmen, in der Vorschau und beim Einmischen)
-    function startMusic(at) {
+    function startMusic(at, loop = false) {
       stopMusic();
       if (!st || !st.music || !st.musicBuf) return;
       ensureMix();
@@ -2925,6 +2972,7 @@
       if (off >= st.musicBuf.duration) return;
       const n = mix.ctx.createBufferSource();
       n.buffer = st.musicBuf;
+      if (loop) { n.loop = true; n.loopStart = st.music.start; n.loopEnd = st.musicBuf.duration; } // Foto-Beitrag: Musik läuft weiter
       n.connect(mix.musicGain);
       n.start(0, off);
       mix.node = n;
@@ -2961,7 +3009,7 @@
       music.pick({ current: st.music, len, onPick: async (m) => {
         await setMusic(m);
         if (!st || ov.dataset.mode !== 'done') return;
-        if (st.src === 'photos') playSlides();
+        if (st.src === 'photos') startMusic(0, true);
         else { out.currentTime = st.trim ? st.trim.start : 0; out.play().catch(() => {}); }
       } });
     };
@@ -3043,9 +3091,6 @@
 
     // ---------- Galerie: Videos (kürzen) und Fotos (einzeln oder als Slideshow) ----------
     const MAX_PHOTOS = 20;
-    const SLIDE_W = 720, SLIDE_H = 1280;  // Hochkant wie bei TikTok
-    const FADE = 0.45;                    // Sekunden Überblendung zwischen Fotos
-    let slideRaf = 0;
 
     function stopCamera() {
       if (!st) return;
@@ -3133,37 +3178,48 @@
       upd('a');
     }
 
-    // Fotos aus der Galerie: eins wird einfach gezeigt, mehrere werden zur Slideshow
+    // Fotos aus der Galerie: ein Foto-Beitrag zum Wischen (wie bei TikTok), Musik läuft dazu
+    const PHOTO_LONG = 1440; // längere Seite der hochgeladenen Fotos
     async function loadPhotos(files) {
       const s = st;
       if (files.length > MAX_PHOTOS) toast(`Höchstens ${MAX_PHOTOS} Fotos – die ersten ${MAX_PHOTOS} werden genommen`);
       files = files.slice(0, MAX_PHOTOS);
       stopCamera();
-      stopSlides();
       ov.classList.remove('nocam');
       ov.classList.add('loading');
-      const imgs = [];
+      const photos = [];
       for (const f of files) {
-        try { imgs.push(await loadImage(f)); } catch { /* überspringen */ }
+        try { photos.push(await shrinkPhoto(f)); } catch { /* überspringen */ }
       }
-      if (st !== s) { imgs.forEach((i) => i.close && i.close()); return; }
+      if (st !== s) { photos.forEach((p) => URL.revokeObjectURL(p.url)); return; }
       ov.classList.remove('loading');
-      if (!imgs.length) { toast('⚠️ Die Fotos konnten nicht geöffnet werden'); await reopenCamera(); return; }
-      if (imgs.length < files.length) toast(`${files.length - imgs.length} Foto(s) konnten nicht geöffnet werden`);
-      (s.slides || []).forEach((i) => i.close && i.close());
-      s.slides = imgs;
+      if (!photos.length) { toast('⚠️ Die Fotos konnten nicht geöffnet werden'); await reopenCamera(); return; }
+      if (photos.length < files.length) toast(`${files.length - photos.length} Foto(s) konnten nicht geöffnet werden`);
+      (s.photos || []).forEach((p) => URL.revokeObjectURL(p.url));
+      s.photos = photos;
       s.src = 'photos';
       s.trim = null;
-      s.slideSecs = imgs.length === 1 ? 8 : 3;
-      cv.width = SLIDE_W; cv.height = SLIDE_H;
       out.pause(); out.removeAttribute('src'); out.load();
       ov.dataset.src = 'photos';
-      s.result = { blob: null, type: null, dur: 0, w: SLIDE_W, h: SLIDE_H, poster: null };
-      drawSlides(cv.getContext('2d'), Math.min(0.3, slideTotal(s) / 2), s);
-      s.result.poster = posterFrom(cv);
-      renderSlideCtl();
+      s.result = { blob: null, type: null, dur: 0, w: photos[0].w, h: photos[0].h, poster: photos[0].poster };
+      renderPhotoPreview();
       setMode('done');
-      playSlides();
+      $('vidTime').textContent = photos.length === 1 ? '📷 Foto' : `🖼️ ${photos.length} Fotos`;
+      startMusic(0, true);
+    }
+    // Foto verkleinern (JPEG) + kleines Vorschaubild
+    async function shrinkPhoto(file) {
+      const img = await loadImage(file);
+      const iw = img.width || img.naturalWidth, ih = img.height || img.naturalHeight;
+      const k = Math.min(1, PHOTO_LONG / Math.max(iw, ih));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      if (img.close) img.close();
+      let q = 0.85, blob = null;
+      do { blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q)); q -= 0.15; } while (blob && blob.size > 3.5 * 1024 * 1024 && q > 0.3);
+      if (!blob) throw new Error('Foto');
+      return { blob, url: URL.createObjectURL(blob), w: c.width, h: c.height, poster: posterFrom(c) };
     }
     function loadImage(file) {
       if (window.createImageBitmap) return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
@@ -3175,116 +3231,14 @@
         img.src = u;
       });
     }
-    const slideTotal = (s) => Math.min(MAX_S, s.slides.length * s.slideSecs);
-    function renderSlideCtl() {
-      const s = st, n = s.slides.length;
-      const r = $('vidSlideSecs');
-      r.min = n === 1 ? 3 : 1; r.max = n === 1 ? 15 : Math.max(1.5, Math.min(6, MAX_S / n)); r.step = 0.5;
-      r.value = s.slideSecs;
-      const upd = () => {
-        s.slideSecs = Number(r.value);
-        s.result.dur = Math.round(slideTotal(s) * 10) / 10;
-        $('vidSlideLabel').textContent = n === 1
-          ? `📷 1 Foto · wird ${s.result.dur} s gezeigt`
-          : `🖼️ ${n} Fotos · ${s.slideSecs} s pro Bild · ${Math.round(s.result.dur)} s`;
-        $('vidSlideName').textContent = n === 1 ? 'Dauer' : 'Pro Bild';
-        $('vidTime').textContent = fmt(s.result.dur);
-      };
-      r.oninput = () => { upd(); playSlides(); };
-      upd();
+    // Vorschau: dieselbe Wisch-Ansicht wie später im Feed
+    function renderPhotoPreview() {
+      const box = $('vidPhotos');
+      box.replaceChildren(photoCarousel(st.photos.map((p) => p.url)));
+      const n = st.photos.length;
+      $('vidSlideLabel').textContent = n === 1 ? '📷 1 Foto' : `🖼️ ${n} Fotos – wische zum Ansehen`;
     }
-    // Ein Foto: Hintergrund unscharf und abgedunkelt, darüber das ganze Foto, leichter Zoom
-    function drawPhoto(g, img, scale, alpha) {
-      const W = g.canvas.width, H = g.canvas.height;
-      const iw = img.width || img.naturalWidth, ih = img.height || img.naturalHeight;
-      g.globalAlpha = alpha;
-      const cover = Math.max(W / iw, H / ih) * 1.08;
-      if ('filter' in g) g.filter = 'blur(26px) brightness(0.55)';
-      g.drawImage(img, (W - iw * cover) / 2, (H - ih * cover) / 2, iw * cover, ih * cover);
-      if ('filter' in g) g.filter = 'none';
-      else { g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, W, H); }
-      const fit = Math.min(W / iw, H / ih) * scale;
-      g.drawImage(img, (W - iw * fit) / 2, (H - ih * fit) / 2, iw * fit, ih * fit);
-      g.globalAlpha = 1;
-    }
-    function drawSlides(g, t, s = st) {
-      const n = s.slides.length, d = s.slideSecs;
-      t = Math.max(0, t || 0); // nie negativ (Bild Nr. -1 gibt es nicht)
-      const i = Math.max(0, Math.min(n - 1, Math.floor(t / d)));
-      const local = t - i * d;
-      g.fillStyle = '#000'; g.fillRect(0, 0, g.canvas.width, g.canvas.height);
-      drawPhoto(g, s.slides[i], 1 + 0.06 * (local / d), 1);
-      // Überblendung zum nächsten Foto
-      if (i + 1 < n && local > d - FADE) drawPhoto(g, s.slides[i + 1], 1, (local - (d - FADE)) / FADE);
-    }
-    // Vorschau der Slideshow in Schleife, mit Musik
-    function playSlides() {
-      stopSlides();
-      const s = st;
-      if (!s || s.src !== 'photos') return;
-      const g = cv.getContext('2d');
-      let t0 = performance.now();
-      startMusic(0);
-      const loop = (now) => {
-        if (st !== s || s.mixing) return;
-        let t = Math.max(0, (now - t0) / 1000); // der erste Frame kann minimal vor t0 liegen
-        const total = slideTotal(s);
-        if (t >= total) { t0 = now; t = 0; startMusic(0); }
-        drawSlides(g, t, s);
-        slideRaf = requestAnimationFrame(loop);
-      };
-      slideRaf = requestAnimationFrame(loop);
-    }
-    function stopSlides() { cancelAnimationFrame(slideRaf); slideRaf = 0; }
-    // Slideshow in Echtzeit als Video aufnehmen (Bild + Musik)
-    async function renderSlides(onProgress) {
-      const s = st;
-      stopSlides();
-      ensureMix(); applyLevels();
-      await mix.ctx.resume().catch(() => {});
-      const dest = mix.ctx.createMediaStreamDestination(); // ohne Musik: stille Tonspur, damit jedes Video Ton hat
-      mix.musicGain.disconnect();
-      mix.musicGain.connect(dest);
-      s.mixing = true;
-      let raf = 0;
-      try {
-        const g = cv.getContext('2d');
-        const total = slideTotal(s);
-        const stream = new MediaStream([...cv.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-        const type = pickType();
-        let rec;
-        try { rec = new MediaRecorder(stream, { videoBitsPerSecond: 1500000, audioBitsPerSecond: 96000, ...(type ? { mimeType: type } : {}) }); }
-        catch { rec = new MediaRecorder(stream); }
-        const chunks = [];
-        rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-        const stopped = new Promise((res) => { rec.onstop = res; });
-        drawSlides(g, 0, s);
-        rec.start(500);
-        startMusic(0);
-        const t0 = performance.now();
-        await new Promise((res) => {
-          const loop = (now) => {
-            const t = Math.max(0, (now - t0) / 1000);
-            drawSlides(g, Math.min(t, total - 0.001), s);
-            onProgress(Math.min(1, t / total));
-            if (t >= total) { res(); return; }
-            raf = requestAnimationFrame(loop);
-          };
-          raf = requestAnimationFrame(loop);
-          setTimeout(res, (total + 4) * 1000); // falls das Fenster im Hintergrund ist
-        });
-        stopMusic();
-        rec.stop();
-        await stopped;
-        const t = ((rec.mimeType || type || 'video/webm').split(';')[0]);
-        return { blob: new Blob(chunks, { type: t }), type: t };
-      } finally {
-        cancelAnimationFrame(raf);
-        s.mixing = false;
-        mix.musicGain.disconnect();
-        mix.musicGain.connect(mix.ctx.destination);
-      }
-    }
+    function stopSlides() { /* Fotos brauchen keine Animation mehr – bleibt für close() */ }
     // Zurück zur Kamera (z. B. wenn eine Datei nicht ging)
     async function reopenCamera() {
       const target = lastTarget, m = st && st.music;
@@ -3486,20 +3440,25 @@
         if (!reels.canPost()) return;
         $('vidSend').disabled = true; $('vidRetake').disabled = true; $('vidMusic').disabled = true;
         const s = st;
-        let file = { blob, type };
-        // Galerie (Video kürzen/verkleinern, Fotos -> Video), Musik oder geänderte Lautstärke: neues Video erzeugen
-        if (s.src !== 'camera' || s.musicBuf || s.levels.voice !== 1) {
-          const bar = $('vidUpload');
-          bar.classList.remove('hidden');
-          bar.querySelector('span').textContent = s.src === 'photos' ? '🖼️ Slideshow wird erstellt…' : s.musicBuf ? '🎵 Musik wird eingemischt…' : '🎬 Video wird vorbereitet…';
-          const prog = (p) => { bar.querySelector('div').style.width = Math.round(p * 100) + '%'; };
-          try { file = s.src === 'photos' ? await renderSlides(prog) : await renderMix(prog); }
-          catch (e) { console.error(e); toast('⚠️ Das Video konnte nicht erstellt werden'); file = null; }
-          bar.classList.add('hidden');
-        }
         let ok = false;
-        if (file && st === s) ok = await reels.upload({ blob: file.blob, type: file.type, dur: s.result.dur, w, h, poster, music: s.musicBuf ? s.music : null }, $('vidCaption').value);
-        else if (file === null && st === s && s.src === 'photos') playSlides();
+        if (s.src === 'photos') {
+          // Foto-Beitrag: Fotos + Musik-Angaben, die Musik spielt im Feed dazu
+          ok = await reels.upload({ kind: 'photos', files: s.photos.map((p) => p.blob), w: s.result.w, h: s.result.h, poster,
+            music: s.musicBuf ? s.music : null, musicVol: s.levels.music }, $('vidCaption').value);
+        } else {
+          let file = { blob, type };
+          // Galerie-Video (kürzen/verkleinern), Musik oder geänderte Lautstärke: neues Video erzeugen
+          if (s.src !== 'camera' || s.musicBuf || s.levels.voice !== 1) {
+            const bar = $('vidUpload');
+            bar.classList.remove('hidden');
+            bar.querySelector('span').textContent = s.musicBuf ? '🎵 Musik wird eingemischt…' : '🎬 Video wird vorbereitet…';
+            const prog = (p) => { bar.querySelector('div').style.width = Math.round(p * 100) + '%'; };
+            try { file = await renderMix(prog); }
+            catch (e) { console.error(e); toast('⚠️ Das Video konnte nicht erstellt werden'); file = null; }
+            bar.classList.add('hidden');
+          }
+          if (file && st === s) ok = await reels.upload({ blob: file.blob, type: file.type, dur: s.result.dur, w, h, poster, music: s.musicBuf ? s.music : null }, $('vidCaption').value);
+        }
         $('vidSend').disabled = false; $('vidRetake').disabled = false; $('vidMusic').disabled = false;
         if (ok) close();
         return;
@@ -3529,7 +3488,8 @@
         clearInterval(s.timer);
         cancelAnimationFrame(s.raf);
         if (s.fileUrl) URL.revokeObjectURL(s.fileUrl);
-        (s.slides || []).forEach((i) => i.close && i.close());
+        (s.photos || []).forEach((p) => URL.revokeObjectURL(p.url));
+        $('vidPhotos').replaceChildren();
         if (s.rec && s.rec.state !== 'inactive') { s.rec.onstop = null; s.rec.stop(); }
         if (s.cam) s.cam.getTracks().forEach((t) => t.stop());
         if (s.audio) s.audio.getTracks().forEach((t) => t.stop());
@@ -3655,7 +3615,7 @@
       await music.catalog().catch(() => {});
       try {
         const before = !reset && list.length ? list[list.length - 1].ts : '';
-        const res = await fetch(api(`/feed?limit=8&me=${me.code}${before ? '&before=' + before : ''}`));
+        const res = await fetch(api(`/feed?v=2&limit=8&me=${me.code}${before ? '&before=' + before : ''}`));
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const d = await res.json();
         admin = !!d.admin;
@@ -3696,7 +3656,7 @@
       $('reelBack').classList.remove('hidden');
       show('viewReels');
       try {
-        const d = await (await fetch(api(`/user/${code}?me=${me.code}`))).json();
+        const d = await (await fetch(api(`/user/${code}?v=2&me=${me.code}`))).json();
         list = d.reels || [];
         list.forEach((r) => feedEl.appendChild(reelEl(r)));
       } catch { toast('⚠️ Konnte nicht geladen werden'); }
@@ -3709,18 +3669,27 @@
     function reelEl(r) {
       const item = el('div', 'reel');
       item.dataset.id = r.id;
-      // Querformat ganz zeigen; die Ränder füllt eine unscharfe, dunkle Version des Vorschaubilds. Hochkant füllt den Bereich.
-      if (r.w > r.h) {
-        item.classList.add('landscape');
-        if (r.poster) item.style.setProperty('--poster', `url("${r.poster}")`);
+      let v = null, pc = null;
+      if (r.kind === 'photos') {
+        // Foto-Beitrag: wischen wie bei TikTok, Musik läuft dazu
+        item.classList.add('photo');
+        pc = photoCarousel(Array.from({ length: r.photos || 1 }, (_, i) => api(`/photo/${r.id}/${i}`)), { lazy: true });
+        item.appendChild(pc);
+        item._pc = pc;
+      } else {
+        // Querformat ganz zeigen; die Ränder füllt eine unscharfe, dunkle Version des Vorschaubilds. Hochkant füllt den Bereich.
+        if (r.w > r.h) {
+          item.classList.add('landscape');
+          if (r.poster) item.style.setProperty('--poster', `url("${r.poster}")`);
+        }
+        v = document.createElement('video');
+        v.className = 'reel-video';
+        v.playsInline = true; v.loop = true; v.preload = 'none';
+        v.setAttribute('playsinline', '');
+        if (r.poster) v.poster = r.poster;
+        v.dataset.src = api('/video/' + r.id);
+        item.appendChild(v);
       }
-      const v = document.createElement('video');
-      v.className = 'reel-video';
-      v.playsInline = true; v.loop = true; v.preload = 'none';
-      v.setAttribute('playsinline', '');
-      if (r.poster) v.poster = r.poster;
-      v.dataset.src = api('/video/' + r.id);
-      item.appendChild(v);
 
       const heart = el('div', 'reel-heart', '❤️');
       item.appendChild(heart);
@@ -3729,7 +3698,7 @@
 
       // Tippen = Pause/Weiter, doppelt tippen = Like
       let lastTap = 0, tapTimer = null;
-      v.addEventListener('click', () => {
+      (v || pc.track).addEventListener('click', () => {
         const now = Date.now();
         if (now - lastTap < 300) {
           clearTimeout(tapTimer); lastTap = 0;
@@ -3739,6 +3708,11 @@
         }
         lastTap = now;
         tapTimer = setTimeout(() => {
+          if (!v) { // Foto-Beitrag: Musik anhalten/weiter
+            if (!r.music) return;
+            if (item.classList.toggle('paused')) stopPhotoMusic(); else startPhotoMusic(r, item);
+            return;
+          }
           if (v.paused) { v.play().catch(() => {}); item.classList.remove('paused'); }
           else { v.pause(); item.classList.add('paused'); }
         }, 300);
@@ -3763,7 +3737,7 @@
         if (!t) music.catalog().then(() => { const tt = music.track(r.music.id); if (tt) snd.lastChild.textContent = tt.title + ' · ' + tt.artist; }).catch(() => {});
       } else {
         const snd = el('div', 'reel-sound plain');
-        snd.append(el('span', 'reel-sound-ic', '🎤'), el('span', 'reel-sound-t', 'Originalton'));
+        snd.append(el('span', 'reel-sound-ic', r.kind === 'photos' ? '📷' : '🎤'), el('span', 'reel-sound-t', r.kind === 'photos' ? (r.photos > 1 ? `${r.photos} Fotos` : 'Foto') : 'Originalton'));
         info.appendChild(snd);
       }
       item.appendChild(info);
@@ -3787,7 +3761,14 @@
 
       const mute = el('button', 'reel-mute', muted ? '🔇' : '🔊');
       mute.type = 'button'; mute.title = 'Ton an/aus';
-      mute.onclick = () => { muted = !muted; document.querySelectorAll('.reel-video').forEach((x) => { x.muted = muted; }); document.querySelectorAll('.reel-mute').forEach((x) => { x.textContent = muted ? '🔇' : '🔊'; }); };
+      mute.onclick = () => {
+        muted = !muted;
+        document.querySelectorAll('.reel-video').forEach((x) => { x.muted = muted; });
+        document.querySelectorAll('.reel-mute').forEach((x) => { x.textContent = muted ? '🔇' : '🔊'; });
+        if (!muted) music.ctx(); // im Tippen freischalten (iPhone)
+        if (photoMusic && photoMusic.gain) photoMusic.gain.gain.value = muted ? 0 : photoMusic.vol;
+        else if (!muted && r.kind === 'photos' && item.dataset.vis === '1') startPhotoMusic(r, item);
+      };
       item.appendChild(mute);
       item._reel = r;
       return item;
@@ -3815,7 +3796,14 @@
       if (view !== 'viewReels' || document.hidden) { pauseAll(); return; }
       const items = [...feedEl.querySelectorAll('.reel')];
       const cur = items.find((x) => x.dataset.vis === '1');
+      if (!cur || !cur._pc || (photoMusic && photoMusic.reel !== cur._reel)) { if (!cur || !cur._pc) stopPhotoMusic(); }
       items.forEach((x) => {
+        if (x._pc) { // Foto-Beitrag
+          if (x !== cur) return;
+          x._pc.load();
+          if (!x.classList.contains('paused') && (!photoMusic || photoMusic.reel !== x._reel)) startPhotoMusic(x._reel, x);
+          return;
+        }
         const v = x.querySelector('video');
         if (x !== cur) { if (!v.paused) v.pause(); return; }
         if (!v.src) v.src = v.dataset.src;
@@ -3831,7 +3819,9 @@
       });
       // Nächstes Video schon vorladen
       const i = items.indexOf(cur);
-      const next = items[i + 1] && items[i + 1].querySelector('video');
+      const nx = items[i + 1];
+      if (nx && nx._pc) nx._pc.load();
+      const next = nx && nx.querySelector('video');
       if (next && !next.src) { next.preload = 'auto'; next.src = next.dataset.src; }
       // Aufruf zählen, wenn man es 1,5 s gesehen hat
       clearTimeout(viewTimer);
@@ -3839,7 +3829,40 @@
       // Kurz vor dem Ende nachladen
       if (mode === 'feed' && i >= items.length - 3) loadFeed(false);
     }
-    function pauseAll() { feedEl.querySelectorAll('video').forEach((v) => { if (!v.paused) v.pause(); }); }
+    function pauseAll() { feedEl.querySelectorAll('video').forEach((v) => { if (!v.paused) v.pause(); }); stopPhotoMusic(); }
+
+    // Musik eines Foto-Beitrags: Ausschnitt in Schleife, Lautstärke wie vom Ersteller gewählt
+    let photoMusic = null; // { reel, node, gain, vol }
+    async function startPhotoMusic(r, item) {
+      stopPhotoMusic();
+      if (!r || !r.music) return;
+      const pm = { reel: r, node: null, gain: null, vol: r.music.vol == null ? 1 : r.music.vol };
+      photoMusic = pm;
+      try {
+        const buf = await music.buffer(r.music.id);
+        if (photoMusic !== pm || item.classList.contains('paused') || view !== 'viewReels') return;
+        const ctx = music.ctx();
+        const g = ctx.createGain();
+        g.gain.value = muted ? 0 : pm.vol;
+        const n = ctx.createBufferSource();
+        n.buffer = buf; n.loop = true;
+        n.loopStart = Math.min(r.music.start, buf.duration - 0.5); n.loopEnd = buf.duration;
+        n.connect(g); g.connect(ctx.destination);
+        n.start(0, n.loopStart);
+        pm.node = n; pm.gain = g;
+        // Ton ohne Antippen nicht erlaubt (iPhone): als stumm anzeigen, Tippen auf 🔇 startet ihn
+        setTimeout(() => {
+          if (photoMusic === pm && ctx.state !== 'running' && !muted) {
+            muted = true;
+            document.querySelectorAll('.reel-mute').forEach((m) => { m.textContent = '🔇'; });
+          }
+        }, 300);
+      } catch { /* ohne Musik weiter */ }
+    }
+    function stopPhotoMusic() {
+      if (photoMusic && photoMusic.node) { try { photoMusic.node.stop(); } catch {} }
+      photoMusic = null;
+    }
     document.addEventListener('visibilitychange', () => { if (view === 'viewReels') playVisible(); });
 
     async function countView(r, item) {
@@ -4029,7 +4052,7 @@
         const grid = el('div', 'reel-grid');
         box.append(cnt, grid);
         if (t) box.appendChild(el('div', 'mus-credit', music.credit(t) + ' · gekürzt, mit Stimme gemischt'));
-        fetch(api('/sound/' + m.id + '?me=' + me.code)).then((r) => r.json()).then((d) => {
+        fetch(api('/sound/' + m.id + '?v=2&me=' + me.code)).then((r) => r.json()).then((d) => {
           cnt.textContent = d.count + (d.count === 1 ? ' UpReel' : ' UpReels') + ' mit diesem Sound';
           (d.reels || []).forEach((r) => {
             const th = el('button', 'reel-thumb');
@@ -4079,8 +4102,13 @@
     // Hochladen mit Fortschritt. true = geklappt
     async function upload(res, caption) {
       if (!needServer()) return false;
-      const bytes = new Uint8Array(await res.blob.arrayBuffer());
-      const meta = new TextEncoder().encode(JSON.stringify({ type: res.type, dur: res.dur, w: res.w, h: res.h, poster: res.poster, caption: String(caption || '').trim().slice(0, 150), name: me.name, music: res.music || null }));
+      const files = res.kind === 'photos' ? res.files : [res.blob];
+      const parts = await Promise.all(files.map(async (f) => new Uint8Array(await f.arrayBuffer())));
+      const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+      parts.reduce((o, p) => { bytes.set(p, o); return o + p.length; }, 0);
+      const metaObj = { type: res.type, dur: res.dur || 0, w: res.w, h: res.h, poster: res.poster, caption: String(caption || '').trim().slice(0, 150), name: me.name, music: res.music || null };
+      if (res.kind === 'photos') Object.assign(metaObj, { kind: 'photos', sizes: parts.map((p) => p.length), types: files.map((f) => f.type || 'image/jpeg'), musicVol: res.musicVol });
+      const meta = new TextEncoder().encode(JSON.stringify(metaObj));
       const body = new Uint8Array(4 + meta.length + bytes.length);
       new DataView(body.buffer).setUint32(0, meta.length);
       body.set(meta, 4);
@@ -4131,7 +4159,7 @@
       wrap.appendChild(el('div', 'rare-ach-title', 'UpReels'));
       const grid = el('div', 'reel-grid');
       wrap.appendChild(grid);
-      fetch(api(`/user/${code}?me=${me.code}`)).then((r) => r.json()).then((d) => {
+      fetch(api(`/user/${code}?v=2&me=${me.code}`)).then((r) => r.json()).then((d) => {
         const rs = d.reels || [];
         if (!rs.length) return;
         wrap.classList.remove('hidden');

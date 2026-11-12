@@ -69,6 +69,10 @@ export default {
       if (parts[2] === 'video' && /^[a-z0-9]{16,40}$/.test(parts[3] || '') && (req.method === 'GET' || req.method === 'HEAD')) {
         return env.REELBLOB.get(env.REELBLOB.idFromName(parts[3])).fetch(req);
       }
+      // Foto-Beitrag: /v1/reels/photo/<id>/<nr> – jedes Foto liegt in einem eigenen Speicher
+      if (parts[2] === 'photo' && /^[a-z0-9]{16,40}$/.test(parts[3] || '') && /^\d{1,2}$/.test(parts[4] || '') && (req.method === 'GET' || req.method === 'HEAD')) {
+        return env.REELBLOB.get(env.REELBLOB.idFromName(`${parts[3]}-p${Number(parts[4])}`)).fetch(req);
+      }
       return env.REELS.get(env.REELS.idFromName('global')).fetch(req);
     }
     const code = String(parts[2] || '').toUpperCase();
@@ -329,6 +333,8 @@ export class AchStats {
 // Jede schreibende Anfrage ist mit dem Schlüssel signiert, der beim Briefkasten des Codes hinterlegt ist.
 const REEL_ID_RE = /^[a-z0-9]{16,40}$/;
 const MUSIC_ID_RE = /^[a-z0-9-]{1,60}$/;   // Track-ID aus web/music/tracks.json
+const REEL_MAX_PHOTOS = 20;                // Foto-Beitrag: höchstens 20 Bilder
+const REEL_MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const REEL_MAX_BYTES = 26 * 1024 * 1024;     // ein Video (App begrenzt auf 60 s, ~10 MB)
 const REELS_TOTAL_MAX = 4.5 * 1024 ** 3;     // Speichergrenze der kostenlosen Stufe (5 GB) nicht reißen
 const REEL_UPLOADS_PER_DAY = 15;
@@ -362,7 +368,8 @@ export class Reels {
       CREATE INDEX IF NOT EXISTS comments_reel ON comments (reel, id);
       CREATE TABLE IF NOT EXISTS reports (reel TEXT, code TEXT, reason TEXT, ts INTEGER, PRIMARY KEY (reel, code));`);
     // Musik (aus der festen Auswahl in der App): welcher Track, ab welcher Sekunde
-    for (const col of ['music_id TEXT', 'music_start REAL']) { try { this.sql.exec(`ALTER TABLE reels ADD COLUMN ${col}`); } catch { /* gibt es schon */ } }
+    // kind: 'video' oder 'photos' (Foto-Beitrag zum Wischen); photos = Anzahl; music_vol = Lautstärke der Musik (0..1)
+    for (const col of ['music_id TEXT', 'music_start REAL', "kind TEXT DEFAULT 'video'", 'photos INTEGER DEFAULT 0', 'music_vol REAL']) { try { this.sql.exec(`ALTER TABLE reels ADD COLUMN ${col}`); } catch { /* gibt es schon */ } }
     this.sql.exec('CREATE INDEX IF NOT EXISTS reels_music ON reels (music_id, ts)');
     this.rate = new Map();
   }
@@ -379,10 +386,13 @@ export class Reels {
     return {
       id: r.id, author: r.author, name: r.name, caption: r.caption, ts: r.ts, dur: r.dur, w: r.w, h: r.h, poster: r.poster,
       likes: r.likes, views: r.views, comments: r.comments,
-      music: r.music_id ? { id: r.music_id, start: r.music_start || 0 } : null,
+      music: r.music_id ? { id: r.music_id, start: r.music_start || 0, vol: r.music_vol == null ? 1 : r.music_vol } : null,
+      kind: r.kind || 'video', photos: r.photos || 0,
       liked: me ? !!this.one('SELECT 1 AS x FROM likes WHERE reel = ? AND code = ?', r.id, me) : false,
     };
   }
+  // Ältere Apps (ohne ?v=2) kennen keine Foto-Beiträge – denen nur Videos zeigen
+  kindSql(url) { return Number(url.searchParams.get('v')) >= 2 ? '' : " AND COALESCE(kind, 'video') = 'video'"; }
   // Signierte Aktion prüfen: text = "<aktion>|<code>|<ts>|<extra>"
   async signed(b, action, extra = '') {
     const code = String(b.code || '').toUpperCase();
@@ -401,16 +411,16 @@ export class Reels {
           const before = Number(url.searchParams.get('before')) || Date.now() + 60000;
           const limit = Math.min(20, Math.max(1, Number(url.searchParams.get('limit')) || 8));
           // Was man selbst gemeldet hat, bekommt man nicht mehr angezeigt
-          const rows = this.sql.exec('SELECT * FROM reels WHERE hidden = 0 AND ts < ? AND id NOT IN (SELECT reel FROM reports WHERE code = ?) ORDER BY ts DESC LIMIT ?', before, me || '', limit).toArray();
+          const rows = this.sql.exec(`SELECT * FROM reels WHERE hidden = 0 AND ts < ? AND id NOT IN (SELECT reel FROM reports WHERE code = ?)${this.kindSql(url)} ORDER BY ts DESC LIMIT ?`, before, me || '', limit).toArray();
           return json({ reels: rows.map((r) => this.pub(r, me)), admin: !!me && admins(this.env).includes(me) });
         }
         if (action === 'user' && CODE_RE.test(arg || '')) {
-          const rows = this.sql.exec('SELECT * FROM reels WHERE author = ? AND hidden = 0 ORDER BY ts DESC LIMIT 100', arg).toArray();
+          const rows = this.sql.exec(`SELECT * FROM reels WHERE author = ? AND hidden = 0${this.kindSql(url)} ORDER BY ts DESC LIMIT 100`, arg).toArray();
           return json({ reels: rows.map((r) => this.pub(r, me)) });
         }
         if (action === 'sound' && MUSIC_ID_RE.test(arg || '')) { // alle Reels mit diesem Sound
-          const rows = this.sql.exec('SELECT * FROM reels WHERE music_id = ? AND hidden = 0 ORDER BY ts DESC LIMIT 60', arg).toArray();
-          const n = this.one('SELECT COUNT(*) AS n FROM reels WHERE music_id = ? AND hidden = 0', arg).n;
+          const rows = this.sql.exec(`SELECT * FROM reels WHERE music_id = ? AND hidden = 0${this.kindSql(url)} ORDER BY ts DESC LIMIT 60`, arg).toArray();
+          const n = this.one(`SELECT COUNT(*) AS n FROM reels WHERE music_id = ? AND hidden = 0${this.kindSql(url)}`, arg).n;
           return json({ reels: rows.map((r) => this.pub(r, me)), count: n });
         }
         if (action === 'one' && REEL_ID_RE.test(arg || '')) {
@@ -487,7 +497,9 @@ export class Reels {
       if (action === 'delete') { // Ersteller oder Admin
         const code = await this.signed(b, 'reeldelete', `|${id}`);
         if (!code || (code !== reel.author && !admins(this.env).includes(code))) return fail(403, 'forbidden');
-        await this.env.REELBLOB.get(this.env.REELBLOB.idFromName(id)).fetch(`https://blob/v1/reels/drop/${id}`, { method: 'POST' });
+        if (reel.kind === 'photos') {
+          for (let i = 0; i < (reel.photos || 0); i++) await this.env.REELBLOB.get(this.env.REELBLOB.idFromName(`${id}-p${i}`)).fetch(`https://blob/v1/reels/drop/${id}`, { method: 'POST' });
+        } else await this.env.REELBLOB.get(this.env.REELBLOB.idFromName(id)).fetch(`https://blob/v1/reels/drop/${id}`, { method: 'POST' });
         for (const t of ['likes', 'views', 'comments', 'reports']) this.sql.exec(`DELETE FROM ${t} WHERE reel = ?`, id);
         this.sql.exec('DELETE FROM reels WHERE id = ?', id);
         return json({ ok: true });
@@ -520,22 +532,40 @@ export class Reels {
     if (mlen > 300 * 1024 || 4 + mlen >= body.length) return fail(400, 'bad meta');
     let meta;
     try { meta = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + mlen))); } catch { return fail(400, 'bad meta'); }
-    const video = body.subarray(4 + mlen);
-    if (video.length > REEL_MAX_BYTES) return fail(413, 'too large');
-    if (total + video.length > REELS_TOTAL_MAX) return fail(507, 'Der UpReels-Speicher ist gerade voll.');
-    const type = /^video\/(mp4|webm|quicktime)$/.test(meta.type) ? meta.type : 'video/mp4';
+    const data = body.subarray(4 + mlen);
+    if (data.length > REEL_MAX_BYTES) return fail(413, 'too large');
+    if (total + data.length > REELS_TOTAL_MAX) return fail(507, 'Der UpReels-Speicher ist gerade voll.');
     const poster = typeof meta.poster === 'string' && meta.poster.length <= 200 * 1024 && /^data:image\/(jpeg|webp|png);base64,/.test(meta.poster) ? meta.poster : null;
     const dim = (v) => { const n = Math.round(Number(v)); return n > 0 && n < 10000 ? n : 720; };
     const dur = Math.max(0, Math.min(120, Number(meta.dur) || 0));
     const music = meta.music && MUSIC_ID_RE.test(String(meta.music.id || '')) ? { id: meta.music.id, start: Math.max(0, Math.min(600, Number(meta.music.start) || 0)) } : null;
+    const musicVol = music ? Math.max(0, Math.min(1, Number(meta.musicVol ?? 1) || 0)) : null;
 
     const id = hex(crypto.getRandomValues(new Uint8Array(12)));
-    const blob = this.env.REELBLOB.get(this.env.REELBLOB.idFromName(id));
-    const put = await blob.fetch(`https://blob/v1/reels/put/${id}`, { method: 'POST', headers: { 'X-Type': type }, body: video });
-    if (!put.ok) return fail(500, 'store failed');
-    this.sql.exec('INSERT INTO reels (id, author, name, caption, ts, dur, w, h, poster, size, music_id, music_start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      id, code, textOf(meta.name, 24) || code, textOf(meta.caption, 150), Date.now(), dur, dim(meta.w), dim(meta.h), poster, video.length,
-      music ? music.id : null, music ? music.start : null);
+    let kind = 'video', photos = 0;
+    if (meta.kind === 'photos') {
+      // Foto-Beitrag: mehrere Bilder hintereinander, Größen stehen in meta.sizes
+      const sizes = Array.isArray(meta.sizes) ? meta.sizes.map(Number) : [];
+      const types = Array.isArray(meta.types) ? meta.types : [];
+      if (!sizes.length || sizes.length > REEL_MAX_PHOTOS || sizes.some((n) => !Number.isInteger(n) || n <= 0 || n > REEL_MAX_PHOTO_BYTES)
+        || sizes.reduce((a, n) => a + n, 0) !== data.length) return fail(400, 'bad photos');
+      let o = 0;
+      for (let i = 0; i < sizes.length; i++) {
+        const t = /^image\/(jpeg|webp|png)$/.test(types[i]) ? types[i] : 'image/jpeg';
+        const put = await this.env.REELBLOB.get(this.env.REELBLOB.idFromName(`${id}-p${i}`))
+          .fetch(`https://blob/v1/reels/put/${id}`, { method: 'POST', headers: { 'X-Type': t }, body: data.subarray(o, o + sizes[i]) });
+        if (!put.ok) return fail(500, 'store failed');
+        o += sizes[i];
+      }
+      kind = 'photos'; photos = sizes.length;
+    } else {
+      const type = /^video\/(mp4|webm|quicktime)$/.test(meta.type) ? meta.type : 'video/mp4';
+      const put = await this.env.REELBLOB.get(this.env.REELBLOB.idFromName(id)).fetch(`https://blob/v1/reels/put/${id}`, { method: 'POST', headers: { 'X-Type': type }, body: data });
+      if (!put.ok) return fail(500, 'store failed');
+    }
+    this.sql.exec('INSERT INTO reels (id, author, name, caption, ts, dur, w, h, poster, size, music_id, music_start, kind, photos, music_vol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id, code, textOf(meta.name, 24) || code, textOf(meta.caption, 150), Date.now(), dur, dim(meta.w), dim(meta.h), poster, data.length,
+      music ? music.id : null, music ? music.start : null, kind, photos, musicVol);
     return json({ ok: true, reel: this.pub(this.one('SELECT * FROM reels WHERE id = ?', id), code) });
   }
 }
@@ -564,7 +594,7 @@ export class ReelBlob {
       this.sql.exec('DELETE FROM meta');
       return json({ ok: true });
     }
-    if (action !== 'video') return fail(404, 'not found');
+    if (action !== 'video' && action !== 'photo') return fail(404, 'not found');
     const size = Number(this.getMeta('size') || 0);
     if (!size) return fail(404, 'gone');
     const type = this.getMeta('type') || 'video/mp4';

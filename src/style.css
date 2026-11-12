@@ -853,3 +853,29 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .personalize { flex-shrink: 0; } /* .settings ist ein Flex-Container: nicht zusammendrücken */
 .vid-caption { width: calc(100% - 24px); box-sizing: border-box; }
 .vidrec.nocam .vid-shutter span { visibility: hidden; transition: none; }
+
+/* ================= Foto-Beiträge: Karussell zum Wischen (wie TikTok) ================= */
+.pc { position: absolute; inset: 0; overflow: hidden; background: #111; }
+.pc-track { position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.pc-track::-webkit-scrollbar { display: none; }
+.pc-slide { position: relative; flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; overflow: hidden; }
+.pc-bg { position: absolute; inset: -40px; background: center / cover no-repeat; filter: blur(30px) brightness(.55) saturate(1.15); transform: scale(1.1); }
+.pc-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.pc-count { position: absolute; top: 12px; right: 54px; padding: 3px 10px; border-radius: 12px; background: rgba(0, 0, 0, .45); color: #fff; font-size: 12.5px; font-weight: 600; z-index: 2; pointer-events: none; }
+.pc-dots { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 5px; z-index: 2; pointer-events: none; }
+.pc-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .45); transition: background .2s, transform .2s; }
+.pc-dots i.on { background: #fff; transform: scale(1.15); }
+.pc-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 50%; background: rgba(0, 0, 0, .4); color: #fff; font-size: 24px; line-height: 1; display: grid; place-items: center; z-index: 2; cursor: pointer; opacity: 0; transition: opacity .2s; }
+.pc-nav.prev { left: 10px; } .pc-nav.next { right: 10px; }
+.pc:hover .pc-nav:not(.off) { opacity: 1; }
+.pc-nav.off { pointer-events: none; }
+@media (pointer: coarse) { .pc-nav { display: none; } }
+/* Im Feed: Platz für die Infos unten und die Knöpfe rechts */
+.reel.photo .pc-dots { bottom: auto; top: 16px; }
+.reel.photo .pc-nav.next { right: 70px; }
+.reel.photo { background: #111; }
+/* Vorschau beim Posten */
+.vid-photos { display: none; position: absolute; inset: 0; }
+.vidrec[data-src="photos"][data-mode="done"] .vid-photos { display: block; }
+.vidrec[data-src="photos"][data-mode="done"] .vid-canvas, .vidrec[data-src="photos"] .vid-preview { display: none !important; }
+.vid-photos .pc-count { right: 12px; top: 110px; }
