@@ -1,0 +1,61 @@
+/* Infoseite von WhatsUp (eigenständig, ohne die App-Styles) */
+:root {
+  --bg: #ffffff; --fg: #111111; --muted: #6b6b73; --line: #ececec; --soft: #f4f5f7;
+  --accent: #1a8cff; --accent-2: #6d5dfc; --card: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e0e10; --fg: #ededed; --muted: #9a9aa3; --line: #222226; --soft: #17171a; --card: #141417; }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3 { line-height: 1.2; margin: 0; }
+.muted { color: var(--muted); }
+
+/* Kopf */
+.hero { background: radial-gradient(1200px 500px at 50% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%), linear-gradient(180deg, var(--soft), var(--bg)); padding: 0 16px 56px; }
+.top { max-width: 1040px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 16px 0; }
+.brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--fg); }
+.brand img { border-radius: 7px; }
+.top-link { color: var(--muted); font-weight: 600; }
+.hero-in { max-width: 720px; margin: 24px auto 0; text-align: center; }
+.hero-logo { border-radius: 26px; box-shadow: 0 18px 50px rgba(26, 140, 255, .35); }
+.hero h1 { font-size: clamp(40px, 8vw, 64px); margin-top: 18px; letter-spacing: -1px; }
+.lead { font-size: clamp(17px, 2.6vw, 21px); color: var(--muted); margin: 12px auto 0; max-width: 560px; }
+.lead strong { color: var(--fg); }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 22px; border-radius: 14px; font-weight: 700; background: var(--card); color: var(--fg); border: 1px solid var(--line); box-shadow: 0 2px 10px rgba(0, 0, 0, .05); }
+.btn:hover { text-decoration: none; transform: translateY(-1px); }
+.btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border: 0; box-shadow: 0 10px 26px rgba(26, 140, 255, .35); }
+.small { font-size: 13px; color: var(--muted); margin-top: 16px; }
+
+main { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+section { padding: 56px 0 8px; }
+section h2 { font-size: clamp(24px, 4vw, 32px); text-align: center; margin-bottom: 26px; }
+
+/* Funktionen */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.grid article { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; }
+.grid span { font-size: 30px; }
+.grid h3 { font-size: 17px; margin: 10px 0 6px; }
+.grid p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+/* Screenshots */
+.shot-row { display: flex; gap: 16px; overflow-x: auto; padding: 4px 4px 16px; scroll-snap-type: x mandatory; }
+.shot-row figure { margin: 0; flex: 0 0 220px; scroll-snap-align: center; text-align: center; }
+.shot-row img { width: 220px; height: auto; border-radius: 22px; border: 1px solid var(--line); box-shadow: 0 12px 34px rgba(0, 0, 0, .12); background: var(--soft); }
+.shot-row figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+/* So startest du */
+.how ol { max-width: 620px; margin: 0 auto; padding-left: 22px; font-size: 16.5px; }
+.how li { margin: 8px 0; }
+code { background: var(--soft); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 14px; }
+
+.about { text-align: center; max-width: 640px; margin: 0 auto; }
+.about p { font-size: 16px; }
+
+footer { text-align: center; padding: 40px 16px 48px; font-size: 14px; border-top: 1px solid var(--line); margin-top: 56px; }
+footer p { margin: 6px 0; }
+@media (max-width: 520px) { .btn { width: 100%; justify-content: center; } }

@@ -50,10 +50,50 @@ replace('<script src="../node_modules/peerjs/dist/peerjs.min.js"></script>',
   '<script src="shim.js"></script>\n  <script src="peerjs.min.js"></script>');
 replace('<h2>Info</h2>', '<h2>Info</h2>\n      <div class="setting"><span class="muted" id="webInfo"></span></div>');
 
+// ---- Für Suchmaschinen und Link-Vorschauen (Google, WhatsApp, Discord, LinkedIn …) ----
+const SITE = 'https://jeremy-jud.github.io/whatsup/';
+const DESC = 'WhatsUp: kostenlose Chat-App ohne Konto. Freunde per Code hinzufügen, Gruppenchats, Umfragen, Anrufe, UpReels mit Musik, Erfolge und Ranglisten – im Browser, auf dem iPhone und für Windows.';
+replace('<title>WhatsUp</title>', `<title>WhatsUp – Chat-App ohne Konto (Web-Version)</title>
+  <meta name="description" content="${DESC}">
+  <meta name="author" content="Jeremy Jud">
+  <link rel="canonical" href="${SITE}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="WhatsUp">
+  <meta property="og:title" content="WhatsUp – Chat-App ohne Konto">
+  <meta property="og:description" content="Freunde per Code hinzufügen und direkt chatten. Kostenlos im Browser, auf dem iPhone und für Windows.">
+  <meta property="og:url" content="${SITE}">
+  <meta property="og:image" content="${SITE}about/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="${SITE}about/og.jpg">`);
+// Text und Link für Suchmaschinen, auch ohne JavaScript lesbar (für Menschen unsichtbar, die App deckt ihn ab)
+replace('<body>', `<body>
+  <div class="seo-intro">
+    <h1>WhatsUp – Chat-App ohne Konto</h1>
+    <p>${DESC}</p>
+    <p><a href="about/">Mehr über WhatsUp, Screenshots und Download für Windows</a> · Entwickelt von Jeremy Jud</p>
+  </div>
+  <noscript><p>WhatsUp braucht JavaScript. <a href="about/">Hier gibt es Infos und den Download für Windows.</a></p></noscript>`);
+
 // Versionsnummer an alle eigenen Dateien hängen, damit Safari nach einem Update
 // nicht neue index.html mit alter style.css/app.js aus dem Zwischenspeicher mischt
 html = html.replace(/(href|src)="(?!https?:|data:|#)([^"?]+\.(?:css|js))"/g, `$1="$2?v=${version}"`);
 
 fs.writeFileSync(path.join(out, 'index.html'), html);
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
+
+// Infoseite (Beschreibung, Screenshots, Download) und Sitemap für die Google Search Console
+fs.cpSync(path.join(root, 'web', 'about'), path.join(out, 'about'), { recursive: true });
+const today = new Date().toISOString().slice(0, 10);
+fs.writeFileSync(path.join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${SITE}about/</loc><lastmod>${today}</lastmod><priority>1.0</priority></url>
+  <url><loc>${SITE}</loc><lastmod>${today}</lastmod><priority>0.8</priority></url>
+</urlset>
+`);
+// Bestätigungsdatei der Google Search Console (falls vorhanden: web/google*.html)
+for (const f of fs.readdirSync(path.join(root, 'web')).filter((n) => /^google[0-9a-f]+\.html$/.test(n))) {
+  fs.copyFileSync(path.join(root, 'web', f), path.join(out, f));
+}
 console.log(`Web-Version ${version} gebaut: ${path.relative(root, out)}/`);
